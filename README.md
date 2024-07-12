@@ -74,9 +74,9 @@ support for building the xtide package is not available from this author.  Ask t
    sudo apt install xtide-data-nonfree
    ```
 
-1. Create the file /etc/xtide.conf with the location of harmonic data.
+1. Create the file /etc/xtide.conf with the location of harmonic data.  As root, use your favorite editor to create the /etc/xtide.conf file with the following contents:
    ```
-   sudo echo /usr/share/xtide > /etc/xtide.conf
+   /usr/share/xtide
    ```
 
 1. Verify xtide works by running the following as the user that weewx runs under:
