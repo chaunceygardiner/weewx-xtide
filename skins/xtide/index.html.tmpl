@@ -1,0 +1,82 @@
+## Copyright 2024 by John A Kline
+## See LICENSE.txt for your rights
+#errorCatcher Echo
+#encoding UTF-8
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Tidal Events</title>
+    <meta name="description" content="Tide Forcasts.">
+  </head>
+  <body>
+    <div style="text-align:center;">
+## Get location
+#set $location = "No Tidal Data"
+#for $event in $xtide.events(1)
+    #set $location = $event.location
+#end for
+
+<div>
+  <div style='color:#367ba3;text-align:left;font-size:52px;border-bottom:1pt solid Black;'>
+    #if $location
+        $location
+    #else
+        Tidal Events
+    #end if
+  </div>
+  <br>
+#if $location
+  <div>
+    <table style='width:97%;text-align:center;border-style:solid;padding:30px;border:1pt solid #aaaaaa;'>
+      #set $event_count = 0
+      #for $event in $xtide.events()
+        #set $event_count += 1
+      <tr>
+        <td>
+          ## --------------------------------------------------
+          ## |       |                   |                    |
+          ## |       |                   |     High Tide      |
+          ## |       |                   |--------------------|
+          ## | ICON  | 11-Jul-2024 04:03 | Partly cloudy      |
+          ## |       |                   |     6.34 feet      |
+          ## |       |                   |                    |
+          ## --------------------------------------------------
+          <table style='width:100%;border-bottom:1pt solid #aaaaaa;padding:15px;'>
+            <tr>
+              #if $event.eventType == 'High Tide'
+                  #set $icon = 'icons/high-tide.png'
+              #else
+                  #set $icon = 'icons/low-tide.png'
+              #end if
+              <td style='width:16%;'><img src='$icon' alt='icon'></td>
+              <td style='width:30%;'>$event.dateTime.format('%a, %b %d, %Y %r')</td>
+              <td style='width:54%;'>
+                <table style='width:100%;text-align:center;'>
+                  <tr style='width:100%;'><td style='text-align:center;font-size:24px;border-bottom:1pt solid #aaaaaa;'>$event.eventType</td></tr>
+                  <tr style='width:100%;'><td>$event.level</td></tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      #end for
+      #if $event_count != 0
+      <tr>
+        <td style='text-align:center;font-style:italic;color:Gray;'>$event_count tidal events.</td>
+      </tr>
+      #end if
+    </table>
+  </div>
+  <br>
+  <p style="width:100%;text-align:center;"><a href="#">Go to Top</a></p>
+#else
+  <div>
+    <p>No tidal events to display.</p>
+  </div>
+#end if
+</div>
+    </div>
+  </body>
+</html>
