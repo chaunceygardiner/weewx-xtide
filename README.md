@@ -76,7 +76,7 @@ support for building the xtide package is not available from this author.  Ask t
 
 1. Create the file /etc/xtide.conf with the location of harmonic data.
    ```
-   echo /usr/share/xtide > /usr/share/xtide
+   sudo echo /usr/share/xtide > /usr/share/xtide
    ```
 
 1. Verify xtide works by running the following as the user that weewx runs under:
