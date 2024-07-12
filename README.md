@@ -105,11 +105,11 @@ support for building the xtide package is not available from this author.  Ask t
    ```
 
 1. Download the release from the [github](https://github.com/chaunceygardiner/weewx-xtide).
-   Click on releases and pick the latest release (Release v1.0).
+   Click on releases and pick the latest release (Release v1.0.1).
 
 1. Install the xtide extension.
    ```
-   weectl extension install weewx-xtide-1.0.zip
+   weectl extension install weewx-xtide-1.0.1.zip
    ```
 
 ## WeeWX 4 Installation Instructions
@@ -124,11 +124,11 @@ support for building the xtide package is not available from this author.  Ask t
    ```
 
 1. Download the release from the [github](https://github.com/chaunceygardiner/weewx-xtide).
-   Click on releases and pick the latest release (Release v1.0).
+   Click on releases and pick the latest release (Release v1.0.1).
 
 1. Run the following command.
    ```
-   sudo /home/weewx/bin/wee_extension --install weewx-xtide-1.0.zip
+   sudo /home/weewx/bin/wee_extension --install weewx-xtide-1.0.1.zip
    ```
    Note: The above command assumes a WeeWX installation of `/home/weewx`.
          Adjust the command as necessary.
