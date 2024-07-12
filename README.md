@@ -3,9 +3,13 @@
 
 ## Description
 
-A WeeWX extension for XTide.  XTide is a package that provides tide and current predictions in a wide variety of formats.  With this extension, one can include high and low tide events for a given location in reports.
+A WeeWX extension for XTide.  XTide is a package that provides tide and current predictions in a wide variety of formats.  With this extension, one can include high and low tide predictions for a given location in reports.
 
 For more information about xtide (a package required to use this extension), see [flaterco.com's xtide page](https://flaterco.com/xtide/).
+
+One can see this extension in action on [PaloAltoWeather.com](https://www.paloaltoweather.com/forecast.html?tab=tides)
+![XTide Tidal Forecasts screenshot](PaloAltoWeather_Tides.png)
+
 
 Copyright (C)2024 by John A Kline (john@johnkline.com)
 
