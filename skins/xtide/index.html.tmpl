@@ -45,9 +45,9 @@
           <table style='width:100%;border-bottom:1pt solid #aaaaaa;padding:15px;'>
             <tr>
               #if $event.eventType == 'High Tide'
-                  #set $icon = 'icons/high-tide.png'
+                  #set $icon = 'xtide_icons/high-tide.png'
               #else
-                  #set $icon = 'icons/low-tide.png'
+                  #set $icon = 'xtide_icons/low-tide.png'
               #end if
               <td style='width:16%;'><img src='$icon' alt='icon'></td>
               <td style='width:30%;'>$event.dateTime.format('%a, %b %d, %Y %r')</td>

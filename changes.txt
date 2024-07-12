@@ -1,3 +1,11 @@
+1.0.1 07/17/2024
+----------------
+Move icons directory to xtide_icons.  This is out of an
+abundance of cautiion since icons directories in the root
+html directory of apache2 dont behave well do the the alias
+in the default configuration (Alias /icons/ "/usr/share/apache2/icons/").
+
+
 1.0 07/12/2024
 --------------
 Initial release of weewx-xtide.
