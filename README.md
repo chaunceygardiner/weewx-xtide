@@ -30,7 +30,7 @@ Copyright (C)2024 by John A Kline (john@johnkline.com)
 1. Verify xtide works by running the following as the
    user that weewx runs under:
    ```
-   /usr/bin/tide -l "Palo Alto Yacht Harbor" -b "2024-07-07 07:00" -e "2024-07-15 07:00" -f c -m p -s "01:00"
+   /usr/bin/tide -l "Palo Alto Yacht Harbor"
    ```
 
 ## Alternately, if xtide is not avaiable on your unix distro
@@ -81,7 +81,7 @@ support for building the xtide package is not available from this author.  Ask t
 
 1. Verify xtide works by running the following as the user that weewx runs under:
    ```
-   /home/<username>/xtide-2.15.5/tide -l "Palo Alto Yacht Harbor" -b "2024-07-07 07:00" -e "2024-07-15 07:00" -f c -m p -s "01:00"
+   /home/<username>/xtide-2.15.5/tide -l "Palo Alto Yacht Harbor"
    ```
 
 1. Follow the instructions below to install weewx-xtide.  DO NOT FORGET to set the prog variable in weewx.conf to point to the tide program that you built.  You need to do this because xtide is not in the standard place.  Rather, it is under your home directory.
