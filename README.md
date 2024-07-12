@@ -51,7 +51,7 @@ support for building the xtide package is not available from this author.  Ask t
    cd
    wget https://flaterco.com/files/xtide/xtide-2.15.5.tar.xz
    unxz xtide-2.15.5.tar.xz
-   tar -zvf xtide-2.15.5.tar
+   tar -xvf xtide-2.15.5.tar
    ```
 
 1. Install some xtide prerequisites
