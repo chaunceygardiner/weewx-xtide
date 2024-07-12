@@ -50,8 +50,8 @@ support for building the xtide package is not available from this author.  Ask t
    ```
    cd
    wget https://flaterco.com/files/xtide/xtide-2.15.5.tar.xz
-   xz /xtide/xtide-2.15.5.tar.xz
-   tar /xtide/xtide-2.15.5.tar
+   xz xtide-2.15.5.tar.xz
+   tar xtide-2.15.5.tar
    ```
 
 1. Install some xtide prerequisites
