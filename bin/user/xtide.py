@@ -245,7 +245,7 @@ class XTidePoller:
                 weeutil.logger.log_traceback(log.error, "    ****  ")
 
             sleep_time = XTidePoller.time_to_next_poll()
-            log.info('poll_xtide: Sleeping for %f seconds.' % sleep_time)
+            log.debug('poll_xtide: Sleeping for %f seconds.' % sleep_time)
             time.sleep(sleep_time)
 
     @staticmethod
@@ -283,7 +283,7 @@ class XTidePoller:
                         else:
                             log.info("ignoring line: %s" % line)
                 if out:
-                    log.info('tide returned %d lines.' % len(out))
+                    log.debug('tide returned %d lines.' % len(out))
                     cfg.events = []
                     for line in out:
                         line = line.replace('\n', '')
@@ -298,7 +298,7 @@ class XTidePoller:
                                 eventType = eventType,
                                 level     = to_float(cols[3].split(' ')[0]),
                             ))
-                    log.info('Fetched %d events.'  % len(out))
+                    log.debug('Fetched %d events (includes sunrise/sunset events).'  % len(out))
                     return True
                 else:
                     # There was no output
