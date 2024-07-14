@@ -1,4 +1,8 @@
-1.0.1 07/17/2024
+1.0.2 7/14/2024
+---------------
+Unencumbered icons.
+
+1.0.1 07/13/2024
 ----------------
 Move icons directory to xtide_icons.  This is out of an
 abundance of cautiion since icons directories in the root

@@ -18,7 +18,7 @@
 #end for
 
 <div>
-  <div style='color:#367ba3;text-align:left;font-size:52px;border-bottom:1pt solid Black;'>
+  <div style='color:#367ba3;text-align:left;font-size:44px;border-bottom:1pt solid Black;'>
     #if $location
         $location
     #else
@@ -34,14 +34,13 @@
         #set $event_count += 1
       <tr>
         <td>
-          ## --------------------------------------------------
-          ## |       |                   |                    |
-          ## |       |                   |     High Tide      |
-          ## |       |                   |--------------------|
-          ## | ICON  | 11-Jul-2024 04:03 | Partly cloudy      |
-          ## |       |                   |     6.34 feet      |
-          ## |       |                   |                    |
-          ## --------------------------------------------------
+          ## ---------------------------------------------------------------
+          ## |       |                                |                    |
+          ## |       |                                |     High Tide      |
+          ## | ICON  | Thu, July 11, 2024 04:03:00 AM |--------------------|
+          ## |       |                                |     6.34 feet      |
+          ## |       |                                |                    |
+          ## ---------------------------------------------------------------
           <table style='width:100%;border-bottom:1pt solid #aaaaaa;padding:15px;'>
             <tr>
               #if $event.eventType == 'High Tide'
