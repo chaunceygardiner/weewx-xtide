@@ -18,7 +18,7 @@
 #end for
 
 <div>
-  <div style='color:#367ba3;text-align:left;font-size:44px;border-bottom:1pt solid Black;'>
+  <div style='color:#367ba3;text-align:center;font-size:44px;border-bottom:1pt solid Black;'>
     #if $location
         $location
     #else
@@ -26,8 +26,8 @@
     #end if
   </div>
   <br>
-#if $location
-  <div>
+	#if $location
+	  <div>
     <table style='width:97%;text-align:center;border-style:solid;padding:30px;border:1pt solid #aaaaaa;'>
       #set $event_count = 0
       #for $event in $xtide.events()
