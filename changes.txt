@@ -1,3 +1,7 @@
+1.0.3 7/14/2024
+---------------
+Updated, cleaner icons.
+
 1.0.2 7/14/2024
 ---------------
 Unencumbered icons.
@@ -6,7 +10,7 @@ Unencumbered icons.
 ----------------
 Move icons directory to xtide_icons.  This is out of an
 abundance of cautiion since icons directories in the root
-html directory of apache2 dont behave well do the the alias
+html directory of apache2 dont behave well due to the alias
 in the default configuration (Alias /icons/ "/usr/share/apache2/icons/").
 
 

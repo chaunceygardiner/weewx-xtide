@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 # Copyright 2024 by John A Kline <john@johnkline.com>
+# Icons by Jessica Chia
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -45,7 +46,7 @@ from weewx.cheetahgenerator import SearchList
 
 log = logging.getLogger(__name__)
 
-WEEWX_XTIDE_VERSION = "1.0.2"
+WEEWX_XTIDE_VERSION = "1.0.3"
 
 if sys.version_info[0] < 3:
     raise weewx.UnsupportedFeature(
