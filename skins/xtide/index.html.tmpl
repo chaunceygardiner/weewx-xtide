@@ -17,73 +17,76 @@
     #set $location = $event.location
 #end for
 
-<div>
-  <div style='color:#367ba3;text-align:center;font-size:44px;border-bottom:1pt solid Black;'>
-    #if $location
-        $location
-    #else
-        Tidal Events
-    #end if
-  </div>
-  <br>
-	#if $location
-	  <div>
-    <table style='width:97%;text-align:center;border-style:solid;padding:30px;border:1pt solid #aaaaaa;'>
-      #set $event_count = 0
-      #for $event in $xtide.events()
-        #set $event_count += 1
-      <tr>
-        <td>
-          ## ------------------------------------------------------------
-          ## |       |                 |                                |
-          ## |       |    6.34 feet    |                                |
-          ## | ICON  |-----------------| Thu, July 11, 2024 04:03:00 AM |
-          ## |       |    High Tide    |                                |
-          ## |       |                 |                                |
-          ## ------------------------------------------------------------
-          <table style='width:100%;border-bottom:1pt solid #aaaaaa;padding:15px;'>
+      <div>
+        <div style='color:#367ba3;text-align:center;font-size:44px;border-bottom:1pt solid Black;'>
+          #if $location
+              $location
+          #else
+              Tidal Events
+          #end if
+        </div>
+        <br>
+        #if $location
+        <div>
+          <table style='width:97%;text-align:center;border-style:solid;padding:30px;border:1pt solid #aaaaaa;'>
+            #set $event_count = 0
+            #for $event in $xtide.events()
+              #set $event_count += 1
             <tr>
-              #if $event.eventType == 'High Tide'
-                  #set $icon = 'xtide_icons/high-tide.png'
-              #else
-                  #set $icon = 'xtide_icons/low-tide.png'
-              #end if
-              ##<td style='width:16%;'><img src='$icon' alt='icon'></td>
-              ##<td style='width:30%;'>$event.dateTime.format('%a, %b %d, %Y %r')</td>
-              ##<td style='width:54%;'>
-              ##  <table style='width:100%;text-align:center;'>
-              ##    <tr style='width:100%;'><td style='text-align:center;font-size:24px;border-bottom:1pt solid #aaaaaa;'>$event.eventType</td></tr>
-              ##    <tr style='width:100%;'><td>$event.level</td></tr>
-              ##  </table>
-              ##</td>
-              <td><img src='$icon' alt='icon'></td>
               <td>
-                <table style='width:100%;text-align:center;'>
-                  <tr style='width:100%;'><td style='text-align:center;font-size:30px;border-bottom:1pt solid #aaaaaa;'>$event.level</td></tr>
-                  <tr style='width:100%;'><td>$event.eventType</td></tr>
+                ## ------------------------------------------------------------
+                ## |       |                 |                                |
+                ## |       |    6.34 feet    |                                |
+                ## | ICON  |-----------------| Thu, July 11, 2024 04:03:00 AM |
+                ## |       |    High Tide    |                                |
+                ## |       |                 |                                |
+                ## ------------------------------------------------------------
+                <table style='width:100%;border-bottom:1pt solid #aaaaaa;padding:15px;'>
+                  <tr>
+                    #if $event.eventType == 'High Tide'
+                        #set $icon = 'xtide_icons/high-tide.png'
+                    #else
+                        #set $icon = 'xtide_icons/low-tide.png'
+                    #end if
+                    ##<td style='width:16%;'><img src='$icon' alt='icon'></td>
+                    ##<td style='width:30%;'>$event.dateTime.format('%a, %b %d, %Y %r')</td>
+                    ##<td style='width:54%;'>
+                    ##  <table style='width:100%;text-align:center;'>
+                    ##    <tr style='width:100%;'><td style='text-align:center;font-size:24px;border-bottom:1pt solid #aaaaaa;'>$event.eventType</td></tr>
+                    ##    <tr style='width:100%;'><td>$event.level</td></tr>
+                    ##  </table>
+                    ##</td>
+                    <td><img src='$icon' alt='icon'></td>
+                    <td>
+                      <table style='width:100%;text-align:center;'>
+                        <tr style='width:100%;'><td style='text-align:center;font-size:30px;border-bottom:1pt solid #aaaaaa;'>$event.level</td></tr>
+                        <tr style='width:100%;'><td>$event.eventType</td></tr>
+                      </table>
+                    </td>
+                    <td style='font-size:20px;'>$event.dateTime.format('%a, %b %d, %Y %I:%M %p')</td>
+                  </tr>
                 </table>
               </td>
-              <td style='font-size:20px;'>$event.dateTime.format('%a, %b %d, %Y %I:%M %p')</td>
             </tr>
+            #end for
+            #if $event_count != 0
+            <tr>
+              <td style='text-align:center;font-style:italic;color:Gray;'>$event_count tidal events.</td>
+            </tr>
+            <tr>
+              <td style='text-align:center;font-style:italic;color:Gray;'>XTide 2 Copyright &copy; 1998 David Flater</td>
+            </tr>
+            #end if
           </table>
-        </td>
-      </tr>
-      #end for
-      #if $event_count != 0
-      <tr>
-        <td style='text-align:center;font-style:italic;color:Gray;'>$event_count tidal events.</td>
-      </tr>
-      #end if
-    </table>
-  </div>
-  <br>
-  <p style="width:100%;text-align:center;"><a href="#">Go to Top</a></p>
-#else
-  <div>
-    <p>No tidal events to display.</p>
-  </div>
-#end if
-</div>
+        </div>
+        <br>
+        <p style="width:100%;text-align:center;"><a href="#">Go to Top</a></p>
+        #else
+        <div>
+          <p>No tidal events to display.</p>
+        </div>
+        #end if
+      </div>
     </div>
   </body>
 </html>
