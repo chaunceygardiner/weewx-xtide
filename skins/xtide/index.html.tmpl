@@ -34,13 +34,13 @@
         #set $event_count += 1
       <tr>
         <td>
-          ## ---------------------------------------------------------------
-          ## |       |                                |                    |
-          ## |       |                                |     High Tide      |
-          ## | ICON  | Thu, July 11, 2024 04:03:00 AM |--------------------|
-          ## |       |                                |     6.34 feet      |
-          ## |       |                                |                    |
-          ## ---------------------------------------------------------------
+          ## ------------------------------------------------------------
+          ## |       |                 |                                |
+          ## |       |    6.34 feet    |                                |
+          ## | ICON  |-----------------| Thu, July 11, 2024 04:03:00 AM |
+          ## |       |    High Tide    |                                |
+          ## |       |                 |                                |
+          ## ------------------------------------------------------------
           <table style='width:100%;border-bottom:1pt solid #aaaaaa;padding:15px;'>
             <tr>
               #if $event.eventType == 'High Tide'
@@ -48,14 +48,22 @@
               #else
                   #set $icon = 'xtide_icons/low-tide.png'
               #end if
-              <td style='width:16%;'><img src='$icon' alt='icon'></td>
-              <td style='width:30%;'>$event.dateTime.format('%a, %b %d, %Y %r')</td>
-              <td style='width:54%;'>
+              ##<td style='width:16%;'><img src='$icon' alt='icon'></td>
+              ##<td style='width:30%;'>$event.dateTime.format('%a, %b %d, %Y %r')</td>
+              ##<td style='width:54%;'>
+              ##  <table style='width:100%;text-align:center;'>
+              ##    <tr style='width:100%;'><td style='text-align:center;font-size:24px;border-bottom:1pt solid #aaaaaa;'>$event.eventType</td></tr>
+              ##    <tr style='width:100%;'><td>$event.level</td></tr>
+              ##  </table>
+              ##</td>
+              <td><img src='$icon' alt='icon'></td>
+              <td>
                 <table style='width:100%;text-align:center;'>
-                  <tr style='width:100%;'><td style='text-align:center;font-size:24px;border-bottom:1pt solid #aaaaaa;'>$event.eventType</td></tr>
-                  <tr style='width:100%;'><td>$event.level</td></tr>
+                  <tr style='width:100%;'><td style='text-align:center;font-size:30px;border-bottom:1pt solid #aaaaaa;'>$event.level</td></tr>
+                  <tr style='width:100%;'><td>$event.eventType</td></tr>
                 </table>
               </td>
+              <td style='font-size:20px;'>$event.dateTime.format('%a, %b %d, %Y %I:%M %p')</td>
             </tr>
           </table>
         </td>
