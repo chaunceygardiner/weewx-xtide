@@ -7,7 +7,7 @@ A WeeWX extension for XTide.  XTide is a package that provides tide and current 
 
 For more information about xtide (a package required to use this extension), see [flaterco.com's xtide page](https://flaterco.com/xtide/).
 
-One can see this extension in action on [PaloAltoWeather.com](https://www.paloaltoweather.com/forecast.html?tab=tides)
+One can see this extension in action on [PaloAltoWeather.com](https://www.paloaltoweather.com/tides.html)
 ![XTide Tidal Forecasts screenshot](PaloAltoWeather_Tides.png)
 
 
