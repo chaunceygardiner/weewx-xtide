@@ -299,6 +299,8 @@ class XTidePoller:
                                 eventType = eventType,
                                 level     = to_float(cols[3].split(' ')[0]),
                             ))
+                        else:
+                            log.debug('Ignoring %s event: %s' % (cols[4], line))
                     log.debug('Fetched %d events (includes sunrise/sunset events).'  % len(out))
                     return True
                 else:
