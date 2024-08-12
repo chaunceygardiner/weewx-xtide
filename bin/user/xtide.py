@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # Copyright 2024 by John A Kline <john@johnkline.com>
-# Icons by Jessica Chia
+# Icons by JChiaWorks
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License

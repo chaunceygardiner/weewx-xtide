@@ -233,7 +233,7 @@ support for building the xtide package is not available from this author.  Ask t
        ```
 ## Icons
 
-Icons by Jessica Chia
+Icons by [JChiaWorks](https://www.jchiaworks.com/)
 
 ## Licensing
 
