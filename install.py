@@ -22,7 +22,7 @@ def loader():
 class XTideInstaller(ExtensionInstaller):
     def __init__(self):
         super(XTideInstaller, self).__init__(
-            version="1.0.4",
+            version="1.0.5",
             name='xtide',
             description='Fetch Tide Forecasts.',
             author="John A Kline",

@@ -85,7 +85,7 @@ support for building the xtide package is not available from this author.  Ask t
 
 1. Verify xtide works by running the following as the user that weewx runs under:
    ```
-   /home/<username>/xtide-2.15.5/tide -l "Palo Alto Yacht Harbor"
+   ~/xtide-2.15.5/tide -l "Palo Alto Yacht Harbor"
    ```
 
 1. Follow the instructions below to install weewx-xtide.  DO NOT FORGET to set the prog variable in weewx.conf to point to the tide program that you built.  You need to do this because xtide is not in the standard place.  Rather, it is under your home directory.
@@ -113,7 +113,7 @@ support for building the xtide package is not available from this author.  Ask t
 
 1. Install the xtide extension.
    ```
-   weectl extension install weewx-xtide-1.0.4.zip
+   weectl extension install weewx-xtide.zip
    ```
 
 ## WeeWX 4 Installation Instructions
@@ -128,11 +128,11 @@ support for building the xtide package is not available from this author.  Ask t
    ```
 
 1. Download the release from the [github](https://github.com/chaunceygardiner/weewx-xtide).
-   Click on releases and pick the latest release (Release v1.0.4).
+   Click on releases and pick the latest release.
 
 1. Run the following command.
    ```
-   sudo /home/weewx/bin/wee_extension --install weewx-xtide-1.0.4.zip
+   sudo /home/weewx/bin/wee_extension --install weewx-xtide.zip
    ```
    Note: The above command assumes a WeeWX installation of `/home/weewx`.
          Adjust the command as necessary.

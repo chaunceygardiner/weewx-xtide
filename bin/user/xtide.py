@@ -46,7 +46,7 @@ from weewx.cheetahgenerator import SearchList
 
 log = logging.getLogger(__name__)
 
-WEEWX_XTIDE_VERSION = "1.0.4"
+WEEWX_XTIDE_VERSION = "1.0.5"
 
 if sys.version_info[0] < 3:
     raise weewx.UnsupportedFeature(

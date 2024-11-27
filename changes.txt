@@ -1,3 +1,7 @@
+1.0.5 11/27/2024
+----------------
+Instructions no longer assume home directory is at /home/<username> when building and installing xtide manually.
+
 1.0.4 7/16/2024
 ---------------
 Revamped sample report.
