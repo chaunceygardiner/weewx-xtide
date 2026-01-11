@@ -17,81 +17,55 @@ Copyright (C)2024 by John A Kline (john@johnkline.com)
 
 # Installation Instructions
 
-## Install xtide
+## build and install xtide and xtide data
 
-1. If available in your unix distro, install xtide:
-  ```
-  sudo apt-get install xtide
-  ```
-
-1. Install xtide-data
+1. Execute the following commands
+   (It's probably easier to save this to a file and run as a script.)
    ```
-   sudo apt install xtide-data
-   sudo apt install xtide-coastline
-   sudo apt install xtide-data-nonfree
+   # Install dependencies
+   sudo apt install build-essential libpng-dev
+
+   # Download and install libtcd
+   cd /tmp
+   wget https://flaterco.com/files/xtide/libtcd-2.2.7-r2.tar.bz2
+   tar xf libtcd-2.2.7-r2.tar.bz2
+   cd libtcd-2.2.7
+   ./configure
+   make
+   sudo make install
+   sudo ldconfig
+
+   # Download and build xtide
+   cd /tmp
+   wget https://flaterco.com/files/xtide/xtide-2.15.6.tar.xz
+   tar xf xtide-2.15.6.tar.xz
+   cd xtide-2.15.6
+   ./configure --without-x --disable-shared CPPFLAGS="-I/usr/local/include" LDFLAGS="-L/usr/local/lib"
+   make
+   sudo make install
+
+   # Download harmonics data
+   cd /tmp
+   wget https://flaterco.com/files/xtide/harmonics-dwf-20251228-free.tar.xz
+   tar xf harmonics-dwf-20251228-free.tar.xz
+   cd harmonics-dwf-20251228
+   sudo mkdir -p /usr/local/share/xtide
+   sudo cp harmonics-dwf-20251228-free.tcd /usr/local/share/xtide/
+
+   # Download coastline data
+   cd /tmp
+   wget https://flaterco.com/files/xtide/wvs.tar.xz
+   tar xf wvs.tar.xz
+   sudo cp wvs*.dat /usr/local/share/xtide/
+
+   # Create conf file
+   echo "/usr/local/share/xtide" | sudo tee /etc/xtide.conf
    ```
 
 1. Verify xtide works by running the following as the
    user that weewx runs under:
    ```
-   /usr/bin/tide -l "Palo Alto Yacht Harbor"
-   ```
-
-## Alternately, if xtide is not avaiable on your unix distro
-
-Note: the following steps have worked for the author of this extension.  Having said that,
-support for building the xtide package is not available from this author.  Ask the xtide community.
-
-
-1. Change to your home directory and set the mode on your home directory
-   so that the weewx user can find the tide program.
-   ```
-   cd
-   chmod 755
-   ```
-
-1. Get the xtide package.
-   ```
-   cd
-   wget https://flaterco.com/files/xtide/xtide-2.15.5.tar.xz
-   unxz xtide-2.15.5.tar.xz
-   tar -xvf xtide-2.15.5.tar
-   ```
-
-1. Install some xtide prerequisites
-   ```
-   sudo apt-get install libpng-dev
-   sudo apt-get install libtcd-dev
-   ```
-
-1. Configure and build xtide
-   ```
-   cd ~/xtide-2.15.5
-   ./configure --with-x=no
-   make tide
-   ```
-
-1. Install xtide-data
-   ```
-   sudo apt install xtide-data
-   sudo apt install xtide-coastline
-   sudo apt install xtide-data-nonfree
-   ```
-
-1. Create the file /etc/xtide.conf with the location of harmonic data.  As root, use your favorite editor to create the /etc/xtide.conf file with the following contents:
-   ```
-   /usr/share/xtide
-   ```
-
-1. Verify xtide works by running the following as the user that weewx runs under:
-   ```
-   ~/xtide-2.15.5/tide -l "Palo Alto Yacht Harbor"
-   ```
-
-1. Follow the instructions below to install weewx-xtide.  DO NOT FORGET to set the prog variable in weewx.conf to point to the tide program that you built.  You need to do this because xtide is not in the standard place.  Rather, it is under your home directory.
-   ```
-   [XTide]
-    prog = /home/<username/xtide-2.15.5/xtide
+   /usr/local/bin/tide -l "Palo Alto Yacht Harbor"
    ```
 
 ## WeeWX 5 Installation Instructions
@@ -116,27 +90,6 @@ support for building the xtide package is not available from this author.  Ask t
    weectl extension install weewx-xtide.zip
    ```
 
-## WeeWX 4 Installation Instructions
-
-1. See above, make sure the tide program runs as the same user as weewx.  DO NOT PROCEED
-   UNTIL YOU GET TIDE WORKING.
-
-1. Install dateutil for python3 (it is required by the nws extension).
-   On debian, this can be accomplished with:
-   ```
-   sudo apt install python3-dateutil
-   ```
-
-1. Download the release from the [github](https://github.com/chaunceygardiner/weewx-xtide).
-   Click on releases and pick the latest release.
-
-1. Run the following command.
-   ```
-   sudo /home/weewx/bin/wee_extension --install weewx-xtide.zip
-   ```
-   Note: The above command assumes a WeeWX installation of `/home/weewx`.
-         Adjust the command as necessary.
-
 # Configuring weewx-xtide
 
 1. By default, xtide will request tides for Palo Alto Yacht Harbor, San Francisco Bay, California
@@ -147,10 +100,11 @@ support for building the xtide package is not available from this author.  Ask t
     location = Palo Alto Yacht Harbor, San Francisco Bay, California
    ```
 
-1. By default, this extension looks for the tide program at /usr/bin/tide If you built xtide manually (because it is missing from you Linux distribution), you'll need to the `prog` entry to the location where the program resides.  You'll also need to make sure the user that weewx runs as can execute the tide program.
+1. For legacy reasons, by default, this extension looks for the tide program at /usr/bin/tide, but if you followed the instructions above, the tide program
+   will be at /usr/local/bin/tide.  You'll need to set the prog variable to point to it.
    ```
    [XTide]
-    prog = /usr/bin/tide
+    prog = /usr/local/bin/tide
    ```
 
 1. By default, xtide will request 7 days of tide forecasts.  One can change this in weewx.conf.
