@@ -52,12 +52,6 @@ Copyright (C)2024 by John A Kline (john@johnkline.com)
    sudo mkdir -p /usr/local/share/xtide
    sudo cp harmonics-dwf-20251228-free.tcd /usr/local/share/xtide/
 
-   # Download coastline data
-   cd /tmp
-   wget https://flaterco.com/files/xtide/wvs.tar.xz
-   tar xf wvs.tar.xz
-   sudo cp wvs*.dat /usr/local/share/xtide/
-
    # Create conf file
    echo "/usr/local/share/xtide" | sudo tee /etc/xtide.conf
    ```
