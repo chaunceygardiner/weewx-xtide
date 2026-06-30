@@ -22,38 +22,64 @@ Copyright (C)2024 by John A Kline (john@johnkline.com)
 1. Execute the following commands
    (It's probably easier to save this to a file and run as a script.)
    ```
-   # Install dependencies
-   sudo apt install build-essential libpng-dev
+#!/bin/sh
+#
+# Build and install XTide (libtcd + xtide + harmonics) from flaterco.com.
+# Run by hand on a machine that needs the `tide` program.
+#
+# Versions are pinned below for reproducibility -- bump these when rebuilding.
+# Check https://flaterco.com/xtide/files.html for current releases.  Note the
+# tarball name and the extracted directory name can differ (e.g. libtcd's -rN
+# revision suffix is on the tarball but not the unpacked directory).
 
-   # Download and install libtcd
-   cd /tmp
-   wget https://flaterco.com/files/xtide/libtcd-2.2.7-r2.tar.bz2
-   tar xf libtcd-2.2.7-r2.tar.bz2
-   cd libtcd-2.2.7
-   ./configure
-   make
-   sudo make install
-   sudo ldconfig
+set -e   # fail fast: stop at the first error rather than cascading
 
-   # Download and build xtide
-   cd /tmp
-   wget https://flaterco.com/files/xtide/xtide-2.15.6.tar.xz
-   tar xf xtide-2.15.6.tar.xz
-   cd xtide-2.15.6
-   ./configure --without-x --disable-shared CPPFLAGS="-I/usr/local/include" LDFLAGS="-L/usr/local/lib"
-   make
-   sudo make install
+# --- pinned versions -------------------------------------------------------
+LIBTCD_TARBALL="libtcd-2.2.7-r2.tar.bz2"
+LIBTCD_DIR="libtcd-2.2.7"
 
-   # Download harmonics data
-   cd /tmp
-   wget https://flaterco.com/files/xtide/harmonics-dwf-20251228-free.tar.xz
-   tar xf harmonics-dwf-20251228-free.tar.xz
-   cd harmonics-dwf-20251228
-   sudo mkdir -p /usr/local/share/xtide
-   sudo cp harmonics-dwf-20251228-free.tcd /usr/local/share/xtide/
+XTIDE_TARBALL="xtide-2.16.tar.xz"
+XTIDE_DIR="xtide-2.16"
 
-   # Create conf file
-   echo "/usr/local/share/xtide" | sudo tee /etc/xtide.conf
+HARMONICS_BASE="harmonics-dwf-20251228"          # extracted directory name
+HARMONICS_TARBALL="${HARMONICS_BASE}-free.tar.xz"
+HARMONICS_TCD="${HARMONICS_BASE}-free.tcd"
+
+BASE_URL="https://flaterco.com/files/xtide"
+# ---------------------------------------------------------------------------
+
+# Install dependencies (interactive: confirm the apt prompt yourself).
+sudo apt install build-essential libpng-dev
+
+# Download and install libtcd
+cd /tmp
+wget "${BASE_URL}/${LIBTCD_TARBALL}"
+tar xf "${LIBTCD_TARBALL}"
+cd "${LIBTCD_DIR}"
+./configure
+make
+sudo make install
+sudo ldconfig
+
+# Download and build xtide
+cd /tmp
+wget "${BASE_URL}/${XTIDE_TARBALL}"
+tar xf "${XTIDE_TARBALL}"
+cd "${XTIDE_DIR}"
+./configure --without-x --disable-shared CPPFLAGS="-I/usr/local/include" LDFLAGS="-L/usr/local/lib"
+make
+sudo make install
+
+# Download harmonics data
+cd /tmp
+wget "${BASE_URL}/${HARMONICS_TARBALL}"
+tar xf "${HARMONICS_TARBALL}"
+cd "${HARMONICS_BASE}"
+sudo mkdir -p /usr/local/share/xtide
+sudo cp "${HARMONICS_TCD}" /usr/local/share/xtide/
+
+# Create conf file
+echo "/usr/local/share/xtide" | sudo tee /etc/xtide.conf
    ```
 
 1. Verify xtide works by running the following as the
