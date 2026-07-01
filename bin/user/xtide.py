@@ -21,6 +21,7 @@
 See the README for installation and usage.
 """
 import configobj
+import csv
 import datetime
 import logging
 import os
@@ -46,7 +47,7 @@ from weewx.cheetahgenerator import SearchList
 
 log = logging.getLogger(__name__)
 
-WEEWX_XTIDE_VERSION = "1.0.5"
+WEEWX_XTIDE_VERSION = "1.1"
 
 if sys.version_info[0] < 3:
     raise weewx.UnsupportedFeature(
@@ -270,7 +271,14 @@ class XTidePoller:
                 if rc is not None:
                     log.error("Call to tide failed: loc='%s' rc=%s" % (cfg.location, rc))
                     return False
-                # /home/jkline/software/xtide-2.15.5/tide -l "Palo Alto Yacht Harbor" -b "2024-07-07 00:00" -e "2024-07-15 00:00" -f c -m p -s "01:00"
+                # xtide v2.16
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,1:12 AM PDT,8.50 ft,"High Tide"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,5:54 AM PDT,,"Sunrise"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,7:24 AM PDT,,"Moonrise"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,9:31 AM PDT,-0.64 ft,"Low Tide"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,3:41 PM PDT,6.57 ft,"High Tide"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,8:32 PM PDT,,"Sunset"
+                # xtide v2.15
                 # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,1:12 AM PDT,8.50 ft,High Tide
                 # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,5:54 AM PDT,,Sunrise
                 # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,7:24 AM PDT,,Moonrise
@@ -279,7 +287,9 @@ class XTidePoller:
                 if p.stdout:
                     for bytes in p.stdout:
                         line = bytes.decode('utf-8')
-                        if line.count(',') == 4:
+                        line = line.replace('\n', '')
+                        cols = next(csv.reader([line]))
+                        if len(cols) == 5:
                             out.append(line)
                         else:
                             log.info("ignoring line: %s" % line)
@@ -288,13 +298,15 @@ class XTidePoller:
                     cfg.events = []
                     for line in out:
                         line = line.replace('\n', '')
-                        cols = line.split(',')
+                        cols = next(csv.reader([line]))
                         eventType  = XTidePoller.encode_event_type(cols[4])
                         if eventType == EventType.HIGH_TIDE or eventType == EventType.LOW_TIDE:
                             unit = cols[3].split(' ')[1]
                             cfg.events.append(Event(
                                 dateTime  = to_int(datetime.datetime.strptime('%s %s' % (cols[1], cols[2]), '%Y-%m-%d %I:%M %p %Z').timestamp()), # 2024-07-07 8:32 PM PDT
                                 usUnits   = weewx.US if unit == 'ft' else weewx.METRIC,
+                                # Older versions of xtide substitute | for , in descriptions
+                                # Newer version quote location and this will be a noop.
                                 location  = cols[0].replace('|', ','),
                                 eventType = eventType,
                                 level     = to_float(cols[3].split(' ')[0]),

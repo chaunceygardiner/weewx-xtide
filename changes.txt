@@ -1,3 +1,13 @@
+1.1 07/01/2026
+--------------
+Update xtide install instructions to install xtide 2.16
+Update weewx-xtide to handle 2.16 change to how events are formatted:
+    xtide v2.16:
+    "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,1:12 AM PDT,8.50 ft,"High Tide"
+    xtide v2.15:
+    Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,1:12 AM PDT,8.50 ft,High Tide
+v1.1 handles both old and new format
+
 1.0.5 11/27/2024
 ----------------
 Instructions no longer assume home directory is at /home/<username> when building and installing xtide manually.
