@@ -1,3 +1,33 @@
+2.0 07/10/2026
+--------------
+README corrections: the Python requirement is 3.10 (the code has used
+    match statements since 1.1); dropped the python-dateutil install step
+    (it is not used).
+The sample report is now an interactive tide graph: continuous tide levels
+    with high/low events marked, three tabs (2 days / 7 days / 30 days),
+    click or hover anywhere on the curve for the exact time and level,
+    night (sunset to sunrise) shading, and a "now" line.  The tidal event
+    list appears below the graph, filtered to the selected view.
+The sample report now runs the tide program at report time and always
+    covers 30 days; it no longer reads the events database and is not
+    limited by the days setting.  $xtide.events() and the database are
+    unchanged for use in your own reports.
+New skin files xtide.css and xtide.js (styles and colors now live in the
+    css file, not in the template).
+Add a test suite (pytest): both tide output formats (2.15 and 2.16),
+    all tide failure paths, graph geometry/payload invariants, and an
+    end-to-end Cheetah render of the sample template — all against fake
+    tide executables for determinism.  Integration tests then verify the
+    REAL tide program's output format still matches what the parser
+    expects (run these after upgrading xtide or harmonics).  A missing or
+    non-working tide FAILS the suite: it is an early signal that the
+    extension will not work in production.
+Fix dead return-code check when running the tide program; failed runs
+    (including unknown station names, which tide reports with exit code 0)
+    now log XTide's actual error message.
+Add a 10s timeout to the tide invocation so a wedged tide program can't
+    hang the polling thread (normal runs take well under a second).
+
 1.1 07/01/2026
 --------------
 Update xtide install instructions to install xtide 2.16

@@ -1,4 +1,4 @@
-# Copyright 2024 by John A Kline <john@johnkline.com>
+# Copyright 2024-2026 by John A Kline <john@johnkline.com>
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -22,7 +22,7 @@ def loader():
 class XTideInstaller(ExtensionInstaller):
     def __init__(self):
         super(XTideInstaller, self).__init__(
-            version="1.1",
+            version="2.0",
             name='xtide',
             description='Fetch Tide Forecasts.',
             author="John A Kline",
@@ -62,6 +62,8 @@ class XTideInstaller(ExtensionInstaller):
                 ('skins/xtide', [
                     'skins/xtide/index.html.tmpl',
                     'skins/xtide/skin.conf',
+                    'skins/xtide/xtide.css',
+                    'skins/xtide/xtide.js',
                     'skins/xtide/xtide_icons/high-tide.png',
                     'skins/xtide/xtide_icons/low-tide.png',
                 ]),

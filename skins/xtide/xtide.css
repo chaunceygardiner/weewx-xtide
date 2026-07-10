@@ -1,0 +1,43 @@
+/* Copyright 2026 by John A Kline.  See LICENSE.txt for your rights.
+   Styles for the weewx-xtide sample report.  All colors live here:
+   Cheetah owns '#', so hex literals must never appear in the .tmpl file. */
+
+body { margin: 0; font-family: sans-serif; background: #ffffff; color: #202020; }
+.xg-page { max-width: 1000px; margin: 0 auto; padding: 8px 12px 24px 12px; text-align: center; }
+.xg-title { color: #367ba3; font-size: 40px; border-bottom: 1pt solid #000000; padding-bottom: 6px; margin-bottom: 14px; }
+.xg-empty { font-size: 18px; }
+
+/* Tabs */
+.xg-tabs { margin-bottom: 10px; }
+.xg-tab { font-size: 16px; padding: 8px 22px; margin: 0 4px; border: 1px solid #aaaaaa;
+          border-radius: 6px 6px 0 0; background: #f2f2f2; color: #202020; cursor: pointer; }
+.xg-tab.xg-active { background: #367ba3; color: #ffffff; border-color: #367ba3; }
+
+/* Graph */
+.xg-wrap { position: relative; }
+.xg-hidden { display: none; }
+svg.xg { width: 100%; height: auto; display: block; }
+.xg-night { fill: #e3ecf4; }
+.xg-grid { stroke: #dddddd; stroke-width: 1; }
+.xg-frame { fill: none; stroke: #aaaaaa; stroke-width: 1; }
+.xg-curve { fill: none; stroke: #367ba3; stroke-width: 2; }
+.xg-hi { fill: #1a6ea0; }
+.xg-lo { fill: #b06e2b; }
+.xg-lab { font-family: sans-serif; font-size: 12px; fill: #555555; }
+.xg-ylab { text-anchor: end; }
+.xg-xlab { text-anchor: middle; }
+.xg-evlab { text-anchor: middle; font-size: 11px; fill: #333333; }
+.xg-unitlab { text-anchor: start; fill: #888888; }
+.xg-nowline { stroke: #cc3333; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.xg-cursor { fill: none; stroke: #cc3333; stroke-width: 2; }
+.xg-tooltip { display: none; position: absolute; background: #ffffff; border: 1px solid #888888;
+              border-radius: 4px; padding: 6px 9px; font-size: 13px; text-align: left;
+              pointer-events: none; box-shadow: 0 2px 6px rgba(0,0,0,0.25); white-space: nowrap; }
+
+/* Event list */
+.xg-events { width: 97%; margin: 18px auto 0 auto; border-collapse: collapse; border: 1pt solid #aaaaaa; }
+.xg-evrow td { border-bottom: 1pt solid #dddddd; padding: 8px 12px; font-size: 17px; }
+.xg-evicon img { width: 40px; height: auto; display: block; margin: 0 auto; }
+.xg-evlevel { font-size: 20px; }
+.xg-count, .xg-credits { font-style: italic; color: #808080; margin-top: 10px; font-size: 13px; }
+.xg-credits a { color: #367ba3; }

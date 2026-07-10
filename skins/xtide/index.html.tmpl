@@ -1,98 +1,61 @@
-## Copyright 2024 by John A Kline
+## Copyright 2024-2026 by John A Kline
 ## See LICENSE.txt for your rights
 #errorCatcher Echo
 #encoding UTF-8
+#set $g = $xtide.graph()
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Tidal Events</title>
-    <meta name="description" content="Tide Forcasts.">
+    <meta name="description" content="Tide forecasts.">
+    <link rel="stylesheet" href="xtide.css">
   </head>
   <body>
-    <div style="text-align:center;">
-## Get location
-#set $location = "No Tidal Data"
-#for $event in $xtide.events(1)
-    #set $location = $event.location
-#end for
-
-      <div>
-        <div style='color:#367ba3;text-align:center;font-size:44px;border-bottom:1pt solid Black;'>
-          #if $location
-              $location
-          #else
-              Tidal Events
-          #end if
-        </div>
-        <br>
-        #if $location
-        <div>
-          <table style='width:97%;text-align:center;border-style:solid;padding:30px;border:1pt solid #aaaaaa;'>
-            #set $event_count = 0
-            #for $event in $xtide.events()
-              #set $event_count += 1
-            <tr>
-              <td>
-                ## ------------------------------------------------------------
-                ## |       |                 |                                |
-                ## |       |    6.34 feet    |                                |
-                ## | ICON  |-----------------| Thu, July 11, 2024 04:03:00 AM |
-                ## |       |    High Tide    |                                |
-                ## |       |                 |                                |
-                ## ------------------------------------------------------------
-                <table style='width:100%;border-bottom:1pt solid #aaaaaa;padding:15px;'>
-                  <tr>
-                    #if $event.eventType == 'High Tide'
-                        #set $icon = 'xtide_icons/high-tide.png'
-                    #else
-                        #set $icon = 'xtide_icons/low-tide.png'
-                    #end if
-                    ##<td style='width:16%;'><img src='$icon' alt='icon'></td>
-                    ##<td style='width:30%;'>$event.dateTime.format('%a, %b %d, %Y %r')</td>
-                    ##<td style='width:54%;'>
-                    ##  <table style='width:100%;text-align:center;'>
-                    ##    <tr style='width:100%;'><td style='text-align:center;font-size:24px;border-bottom:1pt solid #aaaaaa;'>$event.eventType</td></tr>
-                    ##    <tr style='width:100%;'><td>$event.level</td></tr>
-                    ##  </table>
-                    ##</td>
-                    <td><img src='$icon' alt='icon'></td>
-                    <td>
-                      <table style='width:100%;text-align:center;'>
-                        <tr style='width:100%;'><td style='text-align:center;font-size:30px;border-bottom:1pt solid #aaaaaa;'>$event.level</td></tr>
-                        <tr style='width:100%;'><td>$event.eventType</td></tr>
-                      </table>
-                    </td>
-                    <td style='font-size:20px;'>$event.dateTime.format('%a, %b %d, %Y %I:%M %p')</td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            #end for
-            #if $event_count != 0
-            <tr>
-              <td style='text-align:center;font-style:italic;color:Gray;'>$event_count tidal events.</td>
-            </tr>
-            <tr>
-              <td style='text-align:center;font-style:italic;color:Gray;'>XTide 2 Copyright &copy; 1998 David Flater</td>
-            </tr>
-            <tr>
-              <td style='text-align:center;font-style:italic;color:Gray;'>U.S.A. Harmonics from National Ocean Service</td>
-            </tr>
-            <tr>
-              <td style='text-align:center;font-style:italic;color:Gray;'>Icons by <a href="https://www.jchiaworks.com/">JChiaWorks</a></td>
-            </tr>
-            #end if
-          </table>
-        </div>
-        <br>
-        <p style="width:100%;text-align:center;"><a href="#">Go to Top</a></p>
-        #else
-        <div>
-          <p>No tidal events to display.</p>
-        </div>
-        #end if
+    <div class="xg-page">
+#if $g
+      <div class="xg-title">$g.location</div>
+      <div class="xg-tabs">
+        <button type="button" class="xg-tab xg-active" data-view="day">2 Days</button>
+        <button type="button" class="xg-tab" data-view="week">7 Days</button>
+        <button type="button" class="xg-tab" data-view="month">30 Days</button>
       </div>
+      <div class="xg-wrap" id="xg-wrap-day">
+        $g.svg_day
+        <div class="xg-tooltip" id="xg-tip-day"></div>
+      </div>
+      <div class="xg-wrap xg-hidden" id="xg-wrap-week">
+        $g.svg_week
+        <div class="xg-tooltip" id="xg-tip-week"></div>
+      </div>
+      <div class="xg-wrap xg-hidden" id="xg-wrap-month">
+        $g.svg_month
+        <div class="xg-tooltip" id="xg-tip-month"></div>
+      </div>
+      <table class="xg-events">
+#for $ev in $g.events
+        <tr class="xg-evrow" data-ts="$ev.ts">
+          <td class="xg-evicon"><img src="xtide_icons/$ev.icon" alt="$ev.eventType"></td>
+          <td class="xg-evlevel">$ev.level_str</td>
+          <td class="xg-evtype">$ev.eventType</td>
+          <td class="xg-evtime">$ev.time_str</td>
+        </tr>
+#end for
+      </table>
+      <div class="xg-count" id="xg-count"></div>
+      <div class="xg-credits">
+        <div>XTide 2 Copyright &copy; 1998 David Flater</div>
+        <div>U.S.A. Harmonics from National Ocean Service</div>
+        <div>Icons by <a href="https://www.jchiaworks.com/">JChiaWorks</a></div>
+      </div>
+      <script>var XTIDE_DATA = $g.json;</script>
+      <script src="xtide.js"></script>
+#else
+      <div class="xg-title">Tidal Events</div>
+      <p class="xg-empty">No tidal data to display.  Check the system log, and verify that the
+      tide program runs as the WeeWX user and that the location in weewx.conf is valid.</p>
+#end if
     </div>
   </body>
 </html>

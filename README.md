@@ -5,15 +5,21 @@ Open source plugin for WeeWX software.
 
 A WeeWX extension for XTide.  XTide is a package that provides tide and current predictions in a wide variety of formats.  With this extension, one can include high and low tide predictions for a given location in reports.
 
+The bundled sample report is an interactive tide graph: continuous tide levels with the
+high and low tides marked, tabs for 2-day, 7-day and 30-day views, night (sunset to
+sunrise) shading, a "now" line, and click/hover anywhere on the curve to see the exact
+time and tide level.  The tidal events for the selected view are listed below the graph.
+The page is self-contained (no javascript libraries, nothing fetched at run time).
+
 For more information about xtide (a package required to use this extension), see [flaterco.com's xtide page](https://flaterco.com/xtide/).
 
 One can see this extension in action on [PaloAltoWeather.com](https://www.paloaltoweather.com/tides.html)
 ![XTide Tidal Forecasts screenshot](PaloAltoWeather_Tides.png)
 
 
-Copyright (C)2024 by John A Kline (john@johnkline.com)
+Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
 
-**This plugin requires Python 3.7, WeeWX 4 or 5**
+**This plugin requires Python 3.10, WeeWX 4 or 5**
 
 # Installation Instructions
 
@@ -71,18 +77,15 @@ Copyright (C)2024 by John A Kline (john@johnkline.com)
    . /home/weewx/weewx-venv/bin/activate
    ```
 
-1. Install the dateutil package.
-   ```
-   pip install python-dateutil
-   ```
-
 1. Download the release from the [github](https://github.com/chaunceygardiner/weewx-xtide).
-   Click on releases and pick the latest release (Release v1.0.4).
+   Click on releases and pick the latest release (Release v2.0).
 
 1. Install the xtide extension.
    ```
    weectl extension install weewx-xtide.zip
    ```
+
+1. Restart WeeWX.
 
 # Configuring weewx-xtide
 
@@ -101,7 +104,9 @@ Copyright (C)2024 by John A Kline (john@johnkline.com)
     prog = /usr/local/bin/tide
    ```
 
-1. By default, xtide will request 7 days of tide forecasts.  One can change this in weewx.conf.
+1. By default, xtide will keep 7 days of tidal events in the database for use with
+   $xtide.events() in your own reports.  One can change this in weewx.conf.  (The
+   sample report's graph is not affected by this setting; it always shows 30 days.)
    ```
    [XTide]
     days = 7
@@ -109,7 +114,7 @@ Copyright (C)2024 by John A Kline (john@johnkline.com)
 
 1. Add XTideVariables to each report that you want to have access to tidal events.
 
-   For example, to enable in the SeasonsReport, edit weewx.conf to add user.xtide.XTidetVariables
+   For example, to enable in the SeasonsReport, edit weewx.conf to add user.xtide.XTideVariables
    in search_list_extensions.  Note: you might need to add both the CheetahGenerator line and the
    search_list_extensions line (if they do no already exist).
    ```
@@ -121,9 +126,12 @@ Copyright (C)2024 by John A Kline (john@johnkline.com)
 
 1. Restart WeeWX.
 
-1. After the next reporting cycle, navigate to <weewx-html-directory>/xtide to see forecasted tides in the sample report.
+1. After the next reporting cycle, navigate to <weewx-html-directory>/xtide to see the
+   tide graph in the sample report.  Note: the sample report runs the tide program itself
+   at report time and always shows 30 days; the days setting only controls how many days
+   of events are kept in the database for use with $xtide.events() in your own reports.
 
-1.  To get tidal events (in this example, all tidal events are returned for the numnber of days specified in weewx.conf):
+1.  To get tidal events (in this example, all tidal events are returned for the number of days specified in weewx.conf):
     ```
      #for event in $xtide.events()
          $event.location
@@ -147,30 +155,30 @@ Copyright (C)2024 by John A Kline (john@johnkline.com)
 
 1.  Can you successfully run the tide program as the weewx user?  If you can't do this, go no further until you resolve that.
 
-1.  Did you forget to add XTideVariables to your report in weewx.conf?  See step 1 in the **Add XTideVariables to each report that you want to have access to tidal events..** section.
+1.  Did you forget to add XTideVariables to your report in weewx.conf?  See step 1 in the **Add XTideVariables to each report that you want to have access to tidal events.** section.
 
 1.  The extension can be run from the command line to test:
 
     a. To test execution of the tide program from the weewx-xtide extension:
 
        Activate the virtual environment (if using WeeWX 5).
-       In the following commmand line, make sure to set --prog to the location of the tide program
+       In the following command line, make sure to set --prog to the location of the tide program
        ```
-       PYTHONPATH=/home/weewx/bin python3 /home/weewx/bin/user/xtide.py --test-tide-execution --location "Palo Alto Yacht Harbor, San Francisco Bay, California" --prog /home/jkline/software/xtide-2.16/tide
+       PYTHONPATH=/home/weewx/bin python3 /home/weewx/bin/user/xtide.py --test-tide-execution --location "Palo Alto Yacht Harbor, San Francisco Bay, California" --prog /usr/local/bin/tide
        ```
 
     b. To test the service as a whole, requesting and saving to a [temporary] sqlite database:
 
        Activate the virtual environment (if using WeeWX 5).
-       In the following commmand line, make sure to set --prog to the location of the tide program
+       In the following command line, make sure to set --prog to the location of the tide program
        ```
-       PYTHONPATH=/home/weewx/bin python bin/user/xtide.py --test-tide-execution --location "Palo Alto" --prog /home/jkline/software/xtide-2.16/tide
+       PYTHONPATH=/home/weewx/bin python bin/user/xtide.py --test-tide-execution --location "Palo Alto" --prog /usr/local/bin/tide
        ```
  
-    c. To view tide forecast records in the databse (only works for sqlite databases):
+    c. To view tide forecast records in the database (only works for sqlite databases):
 
        Activate the virtual environment (if using WeeWX 5).
-       In the following commmand line, make sure to set --prog to the location of the tide program
+       In the following command line, make sure to set --prog to the location of the tide program
        ```
        PYTHONPATH=/home/weewx/bin python3 /home/weewx/bin/user/xtide.py --view-events --xtide-database /home/weewx/archive/xtide.sdb
        ```
@@ -179,6 +187,23 @@ Copyright (C)2024 by John A Kline (john@johnkline.com)
        ```
        PYTHONPATH=/home/weewx/bin python3 /home/weewx/bin/user/xtide.py --help
        ```
+## Running the test suite
+
+For those working on weewx-xtide itself: the repository includes a pytest test suite
+covering the tide-output parser (both the 2.15 and 2.16 output formats), the error
+handling, the graph geometry, and an end-to-end render of the sample report's template.
+Most of the suite runs against fake tide executables, so results are deterministic and
+both historical output formats get exercised (a modern tide can no longer produce the
+2.15 format).  Integration tests then verify the REAL tide program (at
+/usr/local/bin/tide, or set the XTIDE_PROG environment variable): these are worth
+running after any xtide or harmonics upgrade.  A tide program that is missing, or that
+is installed but not producing events, FAILS the suite — either one is an early signal
+that the extension will not work in production.  From the repository root, using a Python
+that has WeeWX and pytest installed (e.g., the WeeWX virtual environment):
+```
+python -m pytest tests
+```
+
 ## Icons
 
 Icons by [JChiaWorks](https://www.jchiaworks.com/)

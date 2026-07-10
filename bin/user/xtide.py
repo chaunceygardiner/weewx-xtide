@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Copyright 2024 by John A Kline <john@johnkline.com>
+# Copyright 2024-2026 by John A Kline <john@johnkline.com>
 # Icons by JChiaWorks
 #
 # This program is free software; you can redistribute it and/or
@@ -23,7 +23,9 @@ See the README for installation and usage.
 import configobj
 import csv
 import datetime
+import json
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -33,7 +35,7 @@ import time
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import weewx
 import weewx.units
@@ -47,7 +49,7 @@ from weewx.cheetahgenerator import SearchList
 
 log = logging.getLogger(__name__)
 
-WEEWX_XTIDE_VERSION = "1.1"
+WEEWX_XTIDE_VERSION = "2.0"
 
 if sys.version_info[0] < 3:
     raise weewx.UnsupportedFeature(
@@ -125,7 +127,7 @@ class XTide(StdService):
 
         location    = self.xtide_config_dict.get('location', None)
         if location is None:
-            log.error('location must be spcified.')
+            log.error('location must be specified.')
             return
 
         self.cfg = Configuration(
@@ -266,10 +268,9 @@ class XTidePoller:
                 now: datetime.datetime = datetime.datetime.now().astimezone()
                 begin = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
                 end: int = to_int(begin + 24 * 3600 * cfg.days)
-                p = subprocess.Popen([cfg.prog, '-l', cfg.location, '-b', timestamp_to_string(begin), '-e', timestamp_to_string(end), '-f' 'c', '-m', 'p', '-s', '01:00'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                rc = p.returncode
-                if rc is not None:
-                    log.error("Call to tide failed: loc='%s' rc=%s" % (cfg.location, rc))
+                completed = subprocess.run([cfg.prog, '-l', cfg.location, '-b', timestamp_to_string(begin), '-e', timestamp_to_string(end), '-fc', '-m', 'p', '-s', '01:00'], capture_output=True, encoding='utf-8', timeout=10)
+                if completed.returncode != 0:
+                    log.error("Call to tide failed: loc='%s' rc=%d %s" % (cfg.location, completed.returncode, XTidePoller.extract_tide_error(completed.stderr)))
                     return False
                 # xtide v2.16
                 # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,1:12 AM PDT,8.50 ft,"High Tide"
@@ -284,20 +285,16 @@ class XTidePoller:
                 # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,7:24 AM PDT,,Moonrise
                 # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,9:31 AM PDT,-0.64 ft,Low Tide
                 out = []
-                if p.stdout:
-                    for bytes in p.stdout:
-                        line = bytes.decode('utf-8')
-                        line = line.replace('\n', '')
-                        cols = next(csv.reader([line]))
-                        if len(cols) == 5:
-                            out.append(line)
-                        else:
-                            log.info("ignoring line: %s" % line)
+                for line in completed.stdout.splitlines():
+                    cols = next(csv.reader([line]))
+                    if len(cols) == 5:
+                        out.append(line)
+                    else:
+                        log.info("ignoring line: %s" % line)
                 if out:
                     log.debug('tide returned %d lines.' % len(out))
                     cfg.events = []
                     for line in out:
-                        line = line.replace('\n', '')
                         cols = next(csv.reader([line]))
                         eventType  = XTidePoller.encode_event_type(cols[4])
                         if eventType == EventType.HIGH_TIDE or eventType == EventType.LOW_TIDE:
@@ -316,20 +313,24 @@ class XTidePoller:
                     log.debug('Fetched %d events (includes sunrise/sunset events).'  % len(out))
                     return True
                 else:
-                    # There was no output
-                    if p.stderr:
-                        for bytes in p.stderr:
-                            line = bytes.decode('utf-8')
-                            line = line.replace('\n', '')
-                            if line.startswith('XTide Fatal Error:'):
-                                log.error(line)
+                    # tide exited 0 but produced no usable lines (e.g., unknown station)
+                    log.error("tide returned no events: loc='%s' %s" % (cfg.location, XTidePoller.extract_tide_error(completed.stderr)))
                     return False
             except FileNotFoundError:
                 log.error('%s not found' % cfg.prog)
                 return False
-            except subprocess.CalledProcessError as cpe:
-                log.error("tide for location %s failed rc:%d %s" % (cfg.location, cpe.returncode, cpe.output))
+            except subprocess.TimeoutExpired:
+                log.error("tide for location %s timed out." % cfg.location)
                 return False
+
+    @staticmethod
+    def extract_tide_error(stderr: str) -> str:
+        """Return tide's error message, skipping the GPL disclaimer banner it prints first."""
+        for marker in ('XTide Fatal Error:', 'XTide Error:'):
+            idx = stderr.find(marker)
+            if idx != -1:
+                return stderr[idx:].strip()
+        return stderr.strip()
 
     @staticmethod
     def encode_event_type(event_str: str) -> EventType:
@@ -351,6 +352,282 @@ class XTidePoller:
             case _:
                 return EventType.OTHER
 
+def local_timezone_name() -> Optional[str]:
+    """IANA name of the machine's timezone (from /etc/localtime), or None."""
+    try:
+        path = os.path.realpath('/etc/localtime')
+        if '/zoneinfo/' in path:
+            return path.split('/zoneinfo/')[-1]
+    except OSError:
+        pass
+    return None
+
+
+class XTideGraph:
+    """Everything the sample skin's graph page needs; built by XTideGraphBuilder."""
+    def __init__(self, location: str, unit: str, svgs: Dict[str, str], payload: str, events: List[Dict[str, Any]]):
+        self.location  = location
+        self.unit      = unit         # 'ft' or 'm'
+        self.svg_day   = svgs['day']
+        self.svg_week  = svgs['week']
+        self.svg_month = svgs['month']
+        self.json      = payload      # javascript data for tabs/tooltip (xtide.js)
+        self.events    = events       # display rows for the event list
+
+
+class XTideGraphBuilder:
+    """Builds the sample skin's interactive tide graph at report time by
+    running the tide program directly.  Deliberately independent of the
+    events database and the days setting: the graph always covers 30 days,
+    while the database keeps serving $xtide.events() and external consumers.
+    """
+
+    # SVG layout in viewBox units; mirrored to javascript via the json payload.
+    W = 1000
+    H = 380
+    ML = 56   # left margin (level labels)
+    MR = 16
+    MT = 16
+    MB = 36   # bottom margin (time labels)
+
+    # (view, days, sample seconds).  The 'day' view is today plus tomorrow,
+    # midnight to midnight, so an evening visitor still sees a full day ahead.
+    VIEWS = [
+        ('day',    2,  360),
+        ('week',   7,  900),
+        ('month', 30, 3600),
+    ]
+
+    def __init__(self, prog: str, location: str):
+        self.prog = prog
+        self.location = location
+
+    def build(self) -> Optional[XTideGraph]:
+        try:
+            now: datetime.datetime = datetime.datetime.now().astimezone()
+            begin = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+            month_end = begin + 30 * 86400
+            # One extra day on each side so night shading has the sunset
+            # before the window and events at the edges are not clipped.
+            parsed = self.get_events(begin - 86400, month_end + 86400)
+            if parsed is None:
+                return None
+            tides, suns, unit = parsed
+            svgs: Dict[str, str] = {}
+            views: Dict[str, Any] = {}
+            for name, days, step in self.VIEWS:
+                end = begin + days * 86400
+                samples = self.get_samples(begin, end, step)
+                if not samples:
+                    return None
+                t0, actual_step, values = samples
+                # Scale to the intended window (t1 on a midnight), not to the
+                # last sample, which raw mode stops one step short of.
+                t1 = t0 + days * 86400
+                view_tides = [ev for ev in tides if t0 <= ev[0] <= t1]
+                nights = self.night_intervals(suns, t0, t1)
+                svg, vlo, vhi = self.build_view_svg(name, t0, t1, actual_step, values, view_tides, nights, unit)
+                svgs[name] = svg
+                views[name] = {
+                    't0': t0, 't1': t1, 'step': actual_step,
+                    'vlo': vlo, 'vhi': vhi,
+                    'samples': [round(v, 3) for v in values],
+                }
+            payload = {
+                'unit': unit,
+                'tz': local_timezone_name(),
+                'layout': {'w': self.W, 'h': self.H, 'ml': self.ML, 'mt': self.MT,
+                           'pw': self.W - self.ML - self.MR, 'ph': self.H - self.MT - self.MB},
+                'views': views,
+                'events': [[ev[0], round(ev[1], 3), ev[2]] for ev in tides if begin <= ev[0] <= month_end],
+            }
+            unit_long = 'feet' if unit == 'ft' else 'meters'
+            events_display = []
+            for ts, level, event_type in tides:
+                if not begin <= ts <= month_end:
+                    continue
+                high = event_type == EventType.HIGH_TIDE.value
+                events_display.append({
+                    'ts'       : ts,
+                    'eventType': 'High Tide' if high else 'Low Tide',
+                    'icon'     : 'high-tide.png' if high else 'low-tide.png',
+                    'level_str': '%.2f %s' % (level, unit_long),
+                    'time_str' : datetime.datetime.fromtimestamp(ts).astimezone().strftime('%a, %b %d, %Y %I:%M %p'),
+                })
+            return XTideGraph(self.location, unit, svgs, json.dumps(payload, separators=(',', ':')), events_display)
+        except Exception as e:
+            log.error('XTideGraphBuilder.build: %s (%s)' % (e, type(e)))
+            weeutil.logger.log_traceback(log.error, "    ****  ")
+            return None
+
+    def run_tide(self, mode: str, begin: float, end: float, step: str) -> Optional[str]:
+        try:
+            completed = subprocess.run([self.prog, '-l', self.location, '-b', timestamp_to_string(begin), '-e', timestamp_to_string(end), '-fc', '-m', mode, '-s', step], capture_output=True, encoding='utf-8', timeout=10)
+        except FileNotFoundError:
+            log.error('%s not found' % self.prog)
+            return None
+        except subprocess.TimeoutExpired:
+            log.error("tide for location %s timed out." % self.location)
+            return None
+        if completed.returncode != 0:
+            log.error("Call to tide failed: loc='%s' rc=%d %s" % (self.location, completed.returncode, XTidePoller.extract_tide_error(completed.stderr)))
+            return None
+        return completed.stdout
+
+    def get_samples(self, begin: float, end: float, step_secs: int) -> Optional[Tuple[int, int, List[float]]]:
+        """Continuous levels from raw mode: (first timestamp, step, values)."""
+        out = self.run_tide('r', begin, end, '%02d:%02d' % (step_secs // 3600, step_secs % 3600 // 60))
+        if out is None:
+            return None
+        times: List[int] = []
+        values: List[float] = []
+        for line in out.splitlines():
+            # "Palo Alto Yacht Harbor, ...",1783666800,5.286100
+            cols = next(csv.reader([line]))
+            if len(cols) != 3 or not cols[1].strip().isdigit():
+                continue
+            times.append(to_int(cols[1]))
+            values.append(to_float(cols[2]))
+        if len(values) < 2:
+            log.error("tide raw mode returned no samples: loc='%s'" % self.location)
+            return None
+        return times[0], times[1] - times[0], values
+
+    def get_events(self, begin: float, end: float) -> Optional[Tuple[List[Tuple[int, float, int]], List[Tuple[int, str]], str]]:
+        """Tide extremes and sun events from plain mode: (tides, suns, unit).
+        tides are (timestamp, level, EventType value); suns are (timestamp, 'Sunrise'|'Sunset')."""
+        out = self.run_tide('p', begin, end, '01:00')
+        if out is None:
+            return None
+        tides: List[Tuple[int, float, int]] = []
+        suns: List[Tuple[int, str]] = []
+        unit = ''
+        for line in out.splitlines():
+            cols = next(csv.reader([line]))
+            if len(cols) != 5:
+                continue
+            try:
+                ts = to_int(datetime.datetime.strptime('%s %s' % (cols[1], cols[2]), '%Y-%m-%d %I:%M %p %Z').timestamp())
+            except ValueError:
+                continue
+            kind = cols[4]
+            if kind in ('High Tide', 'Low Tide'):
+                parts = cols[3].split(' ')
+                unit = parts[1]
+                tides.append((ts, to_float(parts[0]), XTidePoller.encode_event_type(kind).value))
+            elif kind in ('Sunrise', 'Sunset'):
+                suns.append((ts, kind))
+        if not tides:
+            log.error("tide plain mode returned no tide events: loc='%s'" % self.location)
+            return None
+        return tides, suns, unit
+
+    @staticmethod
+    def night_intervals(suns: List[Tuple[int, str]], begin: float, end: float) -> List[Tuple[float, float]]:
+        """Sunset-to-sunrise intervals clipped to [begin, end]."""
+        nights: List[Tuple[float, float]] = []
+        sunset: Optional[int] = None
+        for ts, kind in suns:
+            if kind == 'Sunset':
+                sunset = ts
+            elif kind == 'Sunrise' and sunset is not None:
+                if ts > begin and sunset < end:
+                    nights.append((max(float(sunset), begin), min(float(ts), end)))
+                sunset = None
+        if sunset is not None and sunset < end:
+            nights.append((max(float(sunset), begin), end))
+        return nights
+
+    @staticmethod
+    def choose_tick(value_range: float) -> float:
+        for step in (0.5, 1.0, 2.0, 5.0, 10.0):
+            if value_range / step <= 8:
+                return step
+        return 20.0
+
+    def build_view_svg(self, name: str, t0: int, t1: int, step: int, values: List[float],
+                       tides: List[Tuple[int, float, int]], nights: List[Tuple[float, float]],
+                       unit: str) -> Tuple[str, float, float]:
+        pw = self.W - self.ML - self.MR
+        ph = self.H - self.MT - self.MB
+        levels = values + [ev[1] for ev in tides]
+        tick = self.choose_tick(max(levels) - min(levels))
+        vlo = math.floor(min(levels) / tick) * tick
+        vhi = math.ceil(max(levels) / tick) * tick
+        # Keep the curve clear of the frame: pad when an extreme lands on or
+        # near a gridline (not just exactly on it).
+        if vhi - max(levels) < 0.05 * tick:
+            vhi += tick
+        if min(levels) - vlo < 0.05 * tick:
+            vlo -= tick
+
+        def x(t: float) -> float:
+            return self.ML + (t - t0) * pw / (t1 - t0)
+
+        def y(v: float) -> float:
+            return self.MT + (vhi - v) * ph / (vhi - vlo)
+
+        s: List[str] = []
+        s.append('<svg class="xg" data-view="%s" viewBox="0 0 %d %d" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">' % (name, self.W, self.H))
+        # Night shading (sunset to sunrise)
+        for n0, n1 in nights:
+            s.append('<rect class="xg-night" x="%.1f" y="%d" width="%.1f" height="%d"/>' % (x(n0), self.MT, x(n1) - x(n0), ph))
+        # Horizontal grid and level labels
+        v = vlo
+        while v <= vhi + tick / 2:
+            s.append('<line class="xg-grid" x1="%d" y1="%.1f" x2="%d" y2="%.1f"/>' % (self.ML, y(v), self.W - self.MR, y(v)))
+            s.append('<text class="xg-lab xg-ylab" x="%d" y="%.1f">%g</text>' % (self.ML - 8, y(v) + 4, v))
+            v += tick
+        # Vertical grid and time labels
+        for tick_t, label in self.time_ticks(name, t0, t1):
+            s.append('<line class="xg-grid" x1="%.1f" y1="%d" x2="%.1f" y2="%d"/>' % (x(tick_t), self.MT, x(tick_t), self.MT + ph))
+            lx = min(max(x(tick_t), self.ML + 20), self.W - 24)
+            s.append('<text class="xg-lab xg-xlab" x="%.1f" y="%d">%s</text>' % (lx, self.MT + ph + 18, label))
+        # The tide curve
+        points = ' '.join('%.1f,%.1f' % (x(t0 + i * step), y(v)) for i, v in enumerate(values))
+        s.append('<polyline class="xg-curve" points="%s"/>' % points)
+        # Event markers (labels on the day view only; elsewhere the tooltip serves)
+        radius = {'day': 4.5, 'week': 3.5, 'month': 2.5}[name]
+        for ts, level, event_type in tides:
+            high = event_type == EventType.HIGH_TIDE.value
+            px, py = x(ts), y(level)
+            s.append('<circle class="%s" cx="%.1f" cy="%.1f" r="%s"/>' % ('xg-hi' if high else 'xg-lo', px, py, radius))
+            if name == 'day':
+                time_lbl = datetime.datetime.fromtimestamp(ts).astimezone().strftime('%I:%M %p').lstrip('0')
+                label = '%.2f %s · %s' % (level, unit, time_lbl)
+                lx = min(max(px, self.ML + 60), self.W - self.MR - 60)
+                ly = max(py - 12, self.MT + 12) if high else min(py + 20, self.MT + ph - 6)
+                s.append('<text class="xg-lab xg-evlab" x="%.1f" y="%.1f">%s</text>' % (lx, ly, label))
+        # Unit reminder, frame, and the javascript-positioned "now" marker
+        s.append('<text class="xg-lab xg-unitlab" x="%d" y="%d">Tide (%s)</text>' % (self.ML + 8, self.MT + 16, unit))
+        s.append('<rect class="xg-frame" x="%d" y="%d" width="%d" height="%d"/>' % (self.ML, self.MT, pw, ph))
+        s.append('<line class="xg-nowline" x1="-10" y1="%d" x2="-10" y2="%d"/>' % (self.MT, self.MT + ph))
+        s.append('</svg>')
+        return ''.join(s), vlo, vhi
+
+    @staticmethod
+    def time_ticks(name: str, t0: int, t1: int) -> List[Tuple[float, str]]:
+        ticks: List[Tuple[float, str]] = []
+        if name == 'day':
+            t: float = t0
+            while t <= t1:
+                dt = datetime.datetime.fromtimestamp(t).astimezone()
+                label = dt.strftime('%I %p').lstrip('0')
+                if dt.hour == 0:
+                    label = dt.strftime('%a')
+                ticks.append((t, label))
+                t += 6 * 3600
+        elif name == 'week':
+            for k in range(8):
+                t = t0 + k * 86400
+                ticks.append((t, datetime.datetime.fromtimestamp(t).astimezone().strftime('%a %d')))
+        else:
+            for k in range(0, 31, 5):
+                t = t0 + k * 86400
+                ticks.append((t, datetime.datetime.fromtimestamp(t).astimezone().strftime('%b %d')))
+        return ticks
+
+
 class XTideVariables(SearchList):
     def __init__(self, generator):
         SearchList.__init__(self, generator)
@@ -366,8 +643,25 @@ class XTideVariables(SearchList):
         self.level_unit_format_dict= {'foot': '%0.2f', 'meter': '%0.2f'}
         self.level_unit_label_dict = {'foot': ' feet', 'meter': ' meters'}
 
+        self._graph: Optional[XTideGraph] = None
+        self._graph_built = False
+
     def get_extension_list(self, timespan, db_lookup) -> List[Dict[str, 'XTideVariables']]:
         return [{'xtide': self}]
+
+    def graph(self) -> Optional[XTideGraph]:
+        """The sample skin's tide graph, built once per report generation.
+        Returns None (and the skin shows a hint) if tide could not be run."""
+        if not self._graph_built:
+            self._graph_built = True
+            xtide_dict = self.generator.config_dict.get('XTide', {})
+            location = xtide_dict.get('location', None)
+            prog = xtide_dict.get('prog', '/usr/bin/tide')
+            if location is None:
+                log.error('graph: location must be specified.')
+            else:
+                self._graph = XTideGraphBuilder(prog, location).build()
+        return self._graph
 
     def events(self, max_events: Optional[int] = None) -> List[Dict[str, Any]]:
         """Returns tidal events."""
