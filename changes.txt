@@ -1,3 +1,10 @@
+2.1 07/12/2026
+--------------
+Fix: weewx could fail to shut down when the stop signal (SIGTERM) landed
+    inside XTide's archive-period database code — the shutdown exception
+    was logged and swallowed by the save/delete/fetch error handlers; it
+    is now passed through so weewx stops promptly.
+
 2.0 07/10/2026
 --------------
 README corrections: the Python requirement is 3.10 (the code has used

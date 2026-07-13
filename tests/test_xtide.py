@@ -381,3 +381,49 @@ class TestServiceHelpers:
     def test_time_to_next_poll_is_before_midnight(self):
         secs = xtide.XTidePoller.time_to_next_poll()
         assert 0 < secs <= 86400 + 3600  # DST slack
+
+
+class TestShutdownPassthrough:
+    """weewxd stops by raising Terminate from its SIGTERM handler inside
+    whatever the main thread is executing -- here the END_ARCHIVE_PERIOD
+    save.  The broad handlers on that path must hand Terminate back
+    (recognized by NAME: weewxd runs as __main__, so the real class cannot
+    be imported) while still eating ordinary errors."""
+
+    class Terminate(Exception):
+        """Same name as weewxd's shutdown exception; the name is all that
+        reraise_if_terminate can (and does) match."""
+
+    @staticmethod
+    def make_service(raiser):
+        # Skip __init__: saveEventsToDB needs only cfg and select_events,
+        # which is the first callee inside its try block.
+        svc = xtide.XTide.__new__(xtide.XTide)
+        svc.cfg = xtide.Configuration(
+            lock=threading.Lock(), location=LOC, prog='tide', days=7,
+            events=[xtide.Event(dateTime=1, usUnits=weewx.US, location=LOC,
+                                eventType=xtide.EventType.HIGH_TIDE, level=5.0)])
+        svc.select_events = raiser
+        return svc
+
+    def test_terminate_escapes_save_events(self):
+        def boom(*args, **kwargs):
+            raise TestShutdownPassthrough.Terminate('shutdown')
+        with pytest.raises(TestShutdownPassthrough.Terminate):
+            self.make_service(boom).saveEventsToDB()
+
+    def test_ordinary_exception_still_swallowed(self, caplog):
+        def boom(*args, **kwargs):
+            raise RuntimeError('db exploded')
+        self.make_service(boom).saveEventsToDB()  # must not raise
+        assert 'db exploded' in caplog.text
+
+    def test_terminate_escapes_fetch_records(self):
+        # fetch_records is also on the main-thread path (via select_events);
+        # Terminate must escape immediately, before any locked-database retry.
+        class FakeDbm:
+            @staticmethod
+            def genSql(select):
+                raise TestShutdownPassthrough.Terminate('shutdown')
+        with pytest.raises(TestShutdownPassthrough.Terminate):
+            xtide.XTideVariables.fetch_records(FakeDbm())

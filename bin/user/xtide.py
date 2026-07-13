@@ -49,7 +49,7 @@ from weewx.cheetahgenerator import SearchList
 
 log = logging.getLogger(__name__)
 
-WEEWX_XTIDE_VERSION = "2.0"
+WEEWX_XTIDE_VERSION = "2.1"
 
 if sys.version_info[0] < 3:
     raise weewx.UnsupportedFeature(
@@ -58,6 +58,18 @@ if sys.version_info[0] < 3:
 if weewx.__version__ < "4":
     raise weewx.UnsupportedFeature(
         "WeeWX 4 is required, found %s" % weewx.__version__)
+
+
+def reraise_if_terminate(e: BaseException) -> None:
+    """weewxd stops by raising Terminate from its SIGTERM signal handler --
+    inside whatever the main thread is executing at that instant, which here
+    is the END_ARCHIVE_PERIOD database save.  Every broad exception handler
+    on a main-thread path must call this first and hand the exception back,
+    or weewx cannot shut down.  weewxd runs as __main__, so its Terminate
+    class cannot be imported here and is recognized by name."""
+    if type(e).__name__ == 'Terminate':
+        raise e
+
 
 # Schema for xtide database (xtide.sdb).
 table = [
@@ -181,6 +193,7 @@ class XTide(StdService):
                 log.info('Saved %d events.' % len(self.cfg.events))
                 self.cfg.events.clear()
         except Exception as e:
+            reraise_if_terminate(e)
             # Include a stack traceback in the log:
             # but eat this exception as we don't want to bring down weewx
             log.error('saveEventsToDB: %s (%s)' % (e, type(e)))
@@ -199,6 +212,7 @@ class XTide(StdService):
                log.debug('Getting count of events: %s.' % select)
                row = dbmanager.getSql(select)
            except Exception as e:
+               reraise_if_terminate(e)
                log.error('delete_all_events: %s failed with %s (%s).' % (select, e, type(e)))
                weeutil.logger.log_traceback(log.error, "    ****  ")
                return
@@ -207,6 +221,7 @@ class XTide(StdService):
                delete = 'DELETE FROM archive'
                dbmanager.getSql(delete)
         except Exception as e:
+           reraise_if_terminate(e)
            log.error('delete_all_events: %s failed with %s (%s).' % (delete, e, type(e)))
            weeutil.logger.log_traceback(log.error, "    ****  ")
 
@@ -695,6 +710,8 @@ class XTideVariables(SearchList):
             try:
                 return XTideVariables.fetch_records_internal(dbm, max_events)
             except Exception as e:
+                # Main-thread reachable: saveEventsToDB -> select_events lands here.
+                reraise_if_terminate(e)
                 # Datbase locked exception has been observed.  If first try, print info and sleep 1s.
                 if i < 2:
                     log.info('fetch_records failed with %s (%s), retrying.' % (e, type(e)))
