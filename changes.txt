@@ -1,3 +1,28 @@
+3.0 (not yet released)
+----------------------
+Fix: weewx failed to start on systems running a non-English locale
+    (German, French, Danish, Spanish, ...).  The tide program's event
+    times are always English ("9:16 AM UTC"), but they were parsed with
+    strptime's %p directive, which only matches the current locale's
+    AM/PM designators -- and most non-English locales define those as
+    empty strings, so parsing raised an error during extension startup.
+    The AM/PM token is now handled explicitly; no locale affects it.
+Change: the sample skin's graph and tide-list time labels now use
+    24-hour form when the system locale has no AM/PM designators (as in
+    most of continental Europe); 12-hour AM/PM strings would have
+    rendered there as an ambiguous "9:16".  English-locale systems are
+    unchanged.
+Fix: tide event times were parsed in the WeeWX server's local timezone,
+    so a tide station in a different timezone than the server got events
+    shifted by the timezone difference (stations reporting UTC), or no
+    events at all (the unrecognized timezone abbreviation made parsing
+    fail).  The tide program is now run with -z and all times are handled
+    in UTC, so any station/server timezone combination works.  Stations
+    in the server's own timezone (e.g. a California station on a
+    California server) were always correct and are unaffected.  This
+    also fixes a possible one-hour error for events falling in the
+    repeated hour of the autumn DST fall-back.
+
 2.1 07/12/2026
 --------------
 Fix: weewx could fail to shut down when the stop signal (SIGTERM) landed

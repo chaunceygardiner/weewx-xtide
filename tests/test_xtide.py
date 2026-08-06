@@ -35,17 +35,18 @@ import xtide  # noqa: E402
 
 LOC = 'Palo Alto Yacht Harbor, San Francisco Bay, California'
 
-# Real tide output, both vintages (from changes.txt / the parser comments).
-V216_OUTPUT = '''"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,1:12 AM PDT,8.50 ft,"High Tide"
-"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,5:54 AM PDT,,"Sunrise"
-"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,7:24 AM PDT,,"Moonrise"
-"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,9:31 AM PDT,-0.64 ft,"Low Tide"
-"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,3:41 PM PDT,6.57 ft,"High Tide"
-"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,8:32 PM PDT,,"Sunset"
+# Real tide output, both vintages (from the parser comments).  tide is
+# always run with -z, so times are UTC (8:12 AM UTC == 1:12 AM PDT).
+V216_OUTPUT = '''"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,8:12 AM UTC,8.50 ft,"High Tide"
+"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,12:54 PM UTC,,"Sunrise"
+"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,2:24 PM UTC,,"Moonrise"
+"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,4:31 PM UTC,-0.64 ft,"Low Tide"
+"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,10:41 PM UTC,6.57 ft,"High Tide"
+"Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-08,3:32 AM UTC,,"Sunset"
 '''
-V215_OUTPUT = '''Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,1:12 AM PDT,8.50 ft,High Tide
-Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,5:54 AM PDT,,Sunrise
-Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,9:31 AM PDT,-0.64 ft,Low Tide
+V215_OUTPUT = '''Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,8:12 AM UTC,8.50 ft,High Tide
+Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,12:54 PM UTC,,Sunrise
+Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,4:31 PM UTC,-0.64 ft,Low Tide
 '''
 
 STATION_NOT_FOUND_STDERR = '''-----------------------------------------------------------------------------
@@ -62,21 +63,26 @@ Could not find: Atlantis, Lost City
 '''
 
 # A fake tide that computes a sinusoidal curve for raw mode and synthesized
-# events for plain mode, honoring -b/-e/-s/-m.  The epoch is recovered from
-# the "(NNNNNNNN)" suffix that weeutil.timestamp_to_string appends.
-SIMULATOR = '''import datetime, math, re, sys
+# events for plain mode, honoring -b/-e/-s/-m.  The extension runs tide with
+# -z and bare UTC 'YYYY-MM-DD HH:MM' window arguments (tide_utc_arg), so the
+# simulator requires -z, parses the window as UTC, and stamps events in UTC.
+SIMULATOR = '''import datetime, math, sys
 args = sys.argv[1:]
+assert '-z' in args, 'tide must be run with -z (UTC): %%r' %% args
 def get(flag):
     return args[args.index(flag) + 1]
-begin = int(re.search(r'\\((\\d+)\\)', get('-b')).group(1))
-end = int(re.search(r'\\((\\d+)\\)', get('-e')).group(1))
+def when(flag):
+    return int(datetime.datetime.strptime(get(flag), '%%Y-%%m-%%d %%H:%%M')
+               .replace(tzinfo=datetime.timezone.utc).timestamp())
+begin = when('-b')
+end = when('-e')
 hh, mm = get('-s').split(':')
 step = int(hh) * 3600 + int(mm) * 60
 LOC = %r
 def level(t):
     return 4.0 + 4.0 * math.sin(2 * math.pi * t / (12.42 * 3600))
 def stamp(t):
-    dt = datetime.datetime.fromtimestamp(t).astimezone()
+    dt = datetime.datetime.fromtimestamp(t, datetime.timezone.utc)
     return '%%s,%%s' %% (dt.strftime('%%Y-%%m-%%d'), dt.strftime('%%I:%%M %%p %%Z'))
 if get('-m') == 'r':
     print('Location,time_t,Value/unit')
@@ -145,7 +151,7 @@ class TestEventParser:
         assert cfg.events[0].location == LOC
 
     def test_metric_units(self, make_tide):
-        out = '"%s",2024-07-07,1:12 AM PDT,2.59 m,"High Tide"\n' % LOC
+        out = '"%s",2024-07-07,8:12 AM UTC,2.59 m,"High Tide"\n' % LOC
         cfg = make_cfg(make_tide(canned(out)))
         assert xtide.XTidePoller.populate_tidal_events(cfg)
         assert cfg.events[0].usUnits == weewx.METRIC
@@ -242,6 +248,72 @@ class TestGraphBuilder:
         assert choose(35.0) == 5.0
 
 
+class TestLocaleRobustness:
+    """tide's csv is always English, whatever the locale; parsing must not
+    depend on strptime's locale-aware %p (most non-English locales define
+    empty AM/PM designators, which used to make startup crash), and time
+    labels must fall back to 24-hour form under such locales."""
+
+    def test_tide_event_ts(self):
+        utc = datetime.timezone.utc
+        def epoch(h, m):
+            return int(datetime.datetime(2026, 8, 6, h, m, tzinfo=utc).timestamp())
+        assert xtide.tide_event_ts('2026-08-06', '9:16 AM UTC') == epoch(9, 16)
+        assert xtide.tide_event_ts('2026-08-06', '9:16 PM UTC') == epoch(21, 16)
+        assert xtide.tide_event_ts('2026-08-06', '12:00 AM UTC') == epoch(0, 0)
+        assert xtide.tide_event_ts('2026-08-06', '12:00 PM UTC') == epoch(12, 0)
+        for bad in ('9:16 UTC', '9:16 AM PDT', '13:16 PM UTC', '0:16 AM UTC', 'garbage'):
+            with pytest.raises(ValueError):
+                xtide.tide_event_ts('2026-08-06', bad)
+
+    def test_parse_and_helper_under_empty_ampm_locale(self, tmp_path):
+        # Compile da_DK (empty AM/PM designators) into a private LOCPATH and
+        # run the assertions in a subprocess: LC_ALL is read at startup there,
+        # sidestepping setlocale-order pitfalls in this process.  localedef
+        # exits non-zero on mere warnings, so trust the output dir instead.
+        locdir = tmp_path / 'locales'
+        locdir.mkdir()
+        made = subprocess.run(['localedef', '-i', 'da_DK', '-f', 'UTF-8',
+                               str(locdir / 'da_DK.UTF-8')],
+                              capture_output=True, encoding='utf-8')
+        if not (locdir / 'da_DK.UTF-8').is_dir():
+            pytest.skip('cannot compile da_DK locale: %s' % made.stderr.strip())
+        expected = int(datetime.datetime(2026, 8, 6, 9, 16,
+                                         tzinfo=datetime.timezone.utc).timestamp())
+        script = (
+            "import locale\n"
+            "locale.setlocale(locale.LC_ALL, '')\n"  # what weewxd does
+            "assert locale.nl_langinfo(locale.AM_STR) == '', (\n"
+            "    'locale did not take: %r' % locale.nl_langinfo(locale.AM_STR))\n"
+            "import xtide\n"
+            "assert xtide.tide_event_ts('2026-08-06', '9:16 AM UTC') == " + str(expected) + "\n"
+            "assert not xtide.use_12_hour_labels()\n")
+        env = dict(os.environ, LOCPATH=str(locdir), LC_ALL='da_DK.UTF-8',
+                   PYTHONPATH=os.path.join(REPO, 'bin', 'user'))
+        run = subprocess.run([sys.executable, '-c', script],
+                             capture_output=True, encoding='utf-8', env=env)
+        assert run.returncode == 0, run.stderr
+
+    def test_labels_stay_12_hour_in_english_locales(self, make_tide):
+        # The test process runs under C/English (AM/PM designators present):
+        # every label keeps the traditional 12-hour form, unchanged.
+        assert xtide.use_12_hour_labels()
+        g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC).build()
+        assert g is not None
+        assert all(ev['time_str'].endswith((' AM', ' PM')) for ev in g.events)
+        assert '>6 AM<' in g.svg_day       # axis hour label
+        assert re.search(r'\d{1,2}:\d{2} [AP]M</text>', g.svg_day)  # event label
+
+    def test_labels_switch_to_24_hour(self, make_tide, monkeypatch):
+        monkeypatch.setattr(xtide, 'use_12_hour_labels', lambda: False)
+        g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC).build()
+        assert g is not None
+        for ev in g.events:
+            assert re.search(r'\d{2}:\d{2}$', ev['time_str'])
+        assert 'AM' not in g.svg_day and 'PM' not in g.svg_day
+        assert '>06<' in g.svg_day         # axis hour label, leading zero kept
+
+
 class TestSampleTemplate:
     """End-to-end Cheetah render.  Compilation alone is NOT sufficient: with
     #errorCatcher Echo, failures render as un-substituted placeholders."""
@@ -307,9 +379,8 @@ def real_tide_cfg():
 class TestRealTide:
     def run_real_tide(self, mode: str, hours: int, step: str = '01:00') -> str:
         begin = datetime.datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        from weeutil.weeutil import timestamp_to_string
-        out = subprocess.run([REAL_TIDE, '-l', LOC, '-b', timestamp_to_string(begin),
-                              '-e', timestamp_to_string(begin + hours * 3600),
+        out = subprocess.run([REAL_TIDE, '-z', '-l', LOC, '-b', xtide.tide_utc_arg(begin),
+                              '-e', xtide.tide_utc_arg(begin + hours * 3600),
                               '-fc', '-m', mode, '-s', step],
                              capture_output=True, encoding='utf-8', timeout=10)
         assert out.returncode == 0, out.stderr
@@ -338,7 +409,9 @@ class TestRealTide:
             level, unit = cols[3].split(' ')
             float(level)
             assert unit in ('ft', 'm')
-            datetime.datetime.strptime('%s %s' % (cols[1], cols[2]), '%Y-%m-%d %I:%M %p %Z')
+            # tide is run with -z, so times must come back labeled UTC
+            assert cols[2].endswith(' UTC'), 'expected a UTC time, got %r' % cols[2]
+            xtide.tide_event_ts(cols[1], cols[2])
 
     def test_raw_mode_format_contract(self, real_tide_cfg):
         import csv as csvmod

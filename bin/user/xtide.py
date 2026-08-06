@@ -24,9 +24,11 @@ import configobj
 import csv
 import datetime
 import json
+import locale
 import logging
 import math
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -49,7 +51,7 @@ from weewx.cheetahgenerator import SearchList
 
 log = logging.getLogger(__name__)
 
-WEEWX_XTIDE_VERSION = "2.1"
+WEEWX_XTIDE_VERSION = "3.0"
 
 if sys.version_info[0] < 3:
     raise weewx.UnsupportedFeature(
@@ -283,22 +285,23 @@ class XTidePoller:
                 now: datetime.datetime = datetime.datetime.now().astimezone()
                 begin = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
                 end: int = to_int(begin + 24 * 3600 * cfg.days)
-                completed = subprocess.run([cfg.prog, '-l', cfg.location, '-b', timestamp_to_string(begin), '-e', timestamp_to_string(end), '-fc', '-m', 'p', '-s', '01:00'], capture_output=True, encoding='utf-8', timeout=10)
+                completed = subprocess.run([cfg.prog, '-z', '-l', cfg.location, '-b', tide_utc_arg(begin), '-e', tide_utc_arg(end), '-fc', '-m', 'p', '-s', '01:00'], capture_output=True, encoding='utf-8', timeout=10)
                 if completed.returncode != 0:
                     log.error("Call to tide failed: loc='%s' rc=%d %s" % (cfg.location, completed.returncode, XTidePoller.extract_tide_error(completed.stderr)))
                     return False
+                # tide is run with -z, so all times below are UTC.
                 # xtide v2.16
-                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,1:12 AM PDT,8.50 ft,"High Tide"
-                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,5:54 AM PDT,,"Sunrise"
-                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,7:24 AM PDT,,"Moonrise"
-                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,9:31 AM PDT,-0.64 ft,"Low Tide"
-                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,3:41 PM PDT,6.57 ft,"High Tide"
-                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,8:32 PM PDT,,"Sunset"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,8:12 AM UTC,8.50 ft,"High Tide"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,12:54 PM UTC,,"Sunrise"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,2:24 PM UTC,,"Moonrise"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,4:31 PM UTC,-0.64 ft,"Low Tide"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,10:41 PM UTC,6.57 ft,"High Tide"
+                # "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-08,3:32 AM UTC,,"Sunset"
                 # xtide v2.15
-                # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,1:12 AM PDT,8.50 ft,High Tide
-                # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,5:54 AM PDT,,Sunrise
-                # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,7:24 AM PDT,,Moonrise
-                # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,9:31 AM PDT,-0.64 ft,Low Tide
+                # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,8:12 AM UTC,8.50 ft,High Tide
+                # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,12:54 PM UTC,,Sunrise
+                # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,2:24 PM UTC,,Moonrise
+                # Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,4:31 PM UTC,-0.64 ft,Low Tide
                 out = []
                 for line in completed.stdout.splitlines():
                     cols = next(csv.reader([line]))
@@ -315,7 +318,7 @@ class XTidePoller:
                         if eventType == EventType.HIGH_TIDE or eventType == EventType.LOW_TIDE:
                             unit = cols[3].split(' ')[1]
                             cfg.events.append(Event(
-                                dateTime  = to_int(datetime.datetime.strptime('%s %s' % (cols[1], cols[2]), '%Y-%m-%d %I:%M %p %Z').timestamp()), # 2024-07-07 8:32 PM PDT
+                                dateTime  = tide_event_ts(cols[1], cols[2]), # e.g. 2024-07-07 8:32 PM UTC (tide run with -z)
                                 usUnits   = weewx.US if unit == 'ft' else weewx.METRIC,
                                 # Older versions of xtide substitute | for , in descriptions
                                 # Newer version quote location and this will be a noop.
@@ -376,6 +379,46 @@ def local_timezone_name() -> Optional[str]:
     except OSError:
         pass
     return None
+
+
+def tide_utc_arg(ts: float) -> str:
+    """Format an epoch as a bare UTC 'YYYY-MM-DD HH:MM' for tide's -b/-e.  tide
+    is run with -z, so the query window must be given in UTC; this keeps the
+    window correct regardless of the server or tide-station timezone."""
+    return datetime.datetime.fromtimestamp(
+        ts, datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
+
+
+def tide_event_ts(date_str: str, time_str: str) -> int:
+    """Convert a tide -z csv event time ('YYYY-MM-DD', 'H:MM AM/PM UTC') to a
+    UTC epoch.  tide is run with -z so the time is UTC; force UTC explicitly
+    rather than trusting strptime's %Z, which only reliably resolves the
+    server's own local zone abbreviations (so a station in another zone would
+    otherwise be parsed as local time and be off by the offset).  The AM/PM
+    token is matched by hand: tide's csv is always English, but strptime's
+    %p only matches the current locale's designators, and most non-English
+    locales define those as empty strings, so 'AM' could never match and
+    weewx failed to start.  Only numeric strptime directives (locale-safe)
+    remain."""
+    m = re.fullmatch(r'(\d{1,2}):(\d{2}) (AM|PM) UTC', time_str)
+    if m is None or not 1 <= int(m.group(1)) <= 12:
+        raise ValueError('unrecognized tide event time: %r' % time_str)
+    hour = int(m.group(1)) % 12 + (12 if m.group(3) == 'PM' else 0)
+    dt = datetime.datetime.strptime(date_str, '%Y-%m-%d').replace(
+        hour=hour, minute=int(m.group(2)), tzinfo=datetime.timezone.utc)
+    return to_int(dt.timestamp())
+
+
+def use_12_hour_labels() -> bool:
+    """Whether the sample skin's time labels should be 12-hour AM/PM.
+    Locales with empty AM/PM designators (most of continental Europe) would
+    render %p as nothing, leaving '9:16' ambiguous -- and those locales are
+    24-hour anyway.  English-style locales keep the traditional 12-hour
+    labels, unchanged."""
+    try:
+        return locale.nl_langinfo(locale.AM_STR) != ''
+    except AttributeError:  # platform without nl_langinfo
+        return True
 
 
 class XTideGraph:
@@ -457,6 +500,7 @@ class XTideGraphBuilder:
                 'events': [[ev[0], round(ev[1], 3), ev[2]] for ev in tides if begin <= ev[0] <= month_end],
             }
             unit_long = 'feet' if unit == 'ft' else 'meters'
+            time_fmt = '%a, %b %d, %Y %I:%M %p' if use_12_hour_labels() else '%a, %b %d, %Y %H:%M'
             events_display = []
             for ts, level, event_type in tides:
                 if not begin <= ts <= month_end:
@@ -467,7 +511,7 @@ class XTideGraphBuilder:
                     'eventType': 'High Tide' if high else 'Low Tide',
                     'icon'     : 'high-tide.png' if high else 'low-tide.png',
                     'level_str': '%.2f %s' % (level, unit_long),
-                    'time_str' : datetime.datetime.fromtimestamp(ts).astimezone().strftime('%a, %b %d, %Y %I:%M %p'),
+                    'time_str' : datetime.datetime.fromtimestamp(ts).astimezone().strftime(time_fmt),
                 })
             return XTideGraph(self.location, unit, svgs, json.dumps(payload, separators=(',', ':')), events_display)
         except Exception as e:
@@ -477,7 +521,7 @@ class XTideGraphBuilder:
 
     def run_tide(self, mode: str, begin: float, end: float, step: str) -> Optional[str]:
         try:
-            completed = subprocess.run([self.prog, '-l', self.location, '-b', timestamp_to_string(begin), '-e', timestamp_to_string(end), '-fc', '-m', mode, '-s', step], capture_output=True, encoding='utf-8', timeout=10)
+            completed = subprocess.run([self.prog, '-z', '-l', self.location, '-b', tide_utc_arg(begin), '-e', tide_utc_arg(end), '-fc', '-m', mode, '-s', step], capture_output=True, encoding='utf-8', timeout=10)
         except FileNotFoundError:
             log.error('%s not found' % self.prog)
             return None
@@ -522,7 +566,7 @@ class XTideGraphBuilder:
             if len(cols) != 5:
                 continue
             try:
-                ts = to_int(datetime.datetime.strptime('%s %s' % (cols[1], cols[2]), '%Y-%m-%d %I:%M %p %Z').timestamp())
+                ts = tide_event_ts(cols[1], cols[2])
             except ValueError:
                 continue
             kind = cols[4]
@@ -603,12 +647,14 @@ class XTideGraphBuilder:
         s.append('<polyline class="xg-curve" points="%s"/>' % points)
         # Event markers (labels on the day view only; elsewhere the tooltip serves)
         radius = {'day': 4.5, 'week': 3.5, 'month': 2.5}[name]
+        use_12h = use_12_hour_labels()
         for ts, level, event_type in tides:
             high = event_type == EventType.HIGH_TIDE.value
             px, py = x(ts), y(level)
             s.append('<circle class="%s" cx="%.1f" cy="%.1f" r="%s"/>' % ('xg-hi' if high else 'xg-lo', px, py, radius))
             if name == 'day':
-                time_lbl = datetime.datetime.fromtimestamp(ts).astimezone().strftime('%I:%M %p').lstrip('0')
+                ev_dt = datetime.datetime.fromtimestamp(ts).astimezone()
+                time_lbl = ev_dt.strftime('%I:%M %p').lstrip('0') if use_12h else ev_dt.strftime('%H:%M')
                 label = '%.2f %s · %s' % (level, unit, time_lbl)
                 lx = min(max(px, self.ML + 60), self.W - self.MR - 60)
                 ly = max(py - 12, self.MT + 12) if high else min(py + 20, self.MT + ph - 6)
@@ -624,10 +670,11 @@ class XTideGraphBuilder:
     def time_ticks(name: str, t0: int, t1: int) -> List[Tuple[float, str]]:
         ticks: List[Tuple[float, str]] = []
         if name == 'day':
+            use_12h = use_12_hour_labels()
             t: float = t0
             while t <= t1:
                 dt = datetime.datetime.fromtimestamp(t).astimezone()
-                label = dt.strftime('%I %p').lstrip('0')
+                label = dt.strftime('%I %p').lstrip('0') if use_12h else dt.strftime('%H')
                 if dt.hour == 0:
                     label = dt.strftime('%a')
                 ticks.append((t, label))
