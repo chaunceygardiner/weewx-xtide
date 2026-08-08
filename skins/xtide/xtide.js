@@ -7,6 +7,10 @@
   var data = window.XTIDE_DATA;
   if (!data) { return; }
   var L = data.layout;
+  /* Server-translated strings (payload T); a missing entry falls back to
+     the English key, so an old payload still renders. */
+  var T = data.T || {};
+  function tr(key) { return typeof T[key] === 'string' ? T[key] : key; }
   var views = ['day', 'week', 'month'];
   var active = 'day';
   var cursors = {};
@@ -68,7 +72,7 @@
     if (hit) {
       ts = hit[0];
       val = hit[1];
-      title = hit[2] === 1 ? 'High Tide' : 'Low Tide';
+      title = tr(hit[2] === 1 ? 'High Tide' : 'Low Tide');
     } else {
       var idx = Math.round((t - v.t0) / v.step);
       if (idx < 0) { idx = 0; }
@@ -121,7 +125,7 @@
       if (show) { shown++; }
     }
     var count = document.getElementById('xg-count');
-    if (count) { count.textContent = shown + ' tidal events.'; }
+    if (count) { count.textContent = tr('{n} tidal events.').replace('{n}', shown); }
   }
 
   function selectView(view) {

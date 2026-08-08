@@ -66,6 +66,15 @@ class XTideInstaller(ExtensionInstaller):
                     'skins/xtide/xtide.js',
                     'skins/xtide/xtide_icons/high-tide.png',
                     'skins/xtide/xtide_icons/low-tide.png',
+                    'skins/xtide/lang/da.conf',
+                    'skins/xtide/lang/de.conf',
+                    'skins/xtide/lang/en.conf',
+                    'skins/xtide/lang/es.conf',
+                    'skins/xtide/lang/fr.conf',
+                    'skins/xtide/lang/it.conf',
+                    'skins/xtide/lang/nl.conf',
+                    'skins/xtide/lang/no.conf',
+                    'skins/xtide/lang/sv.conf',
                 ]),
             ]
         )

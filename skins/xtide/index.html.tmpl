@@ -1,15 +1,19 @@
 ## Copyright 2024-2026 by John A Kline
 ## See LICENSE.txt for your rights
+## Every English string is a $gettext key (the key IS the English text, so a
+## missing [Texts] entry falls back to it); the report's lang file translates
+## them.  Keys are single-line literals: the test suite reads them from this
+## file to enforce that lang/en.conf ships exactly the keys that render.
 #errorCatcher Echo
 #encoding UTF-8
 #set $g = $xtide.graph()
 <!DOCTYPE html>
-<html lang="en">
+<html lang="$lang">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Tidal Events</title>
-    <meta name="description" content="Tide forecasts.">
+    <title>$gettext("Tidal Events")</title>
+    <meta name="description" content='$gettext("Tide forecasts.")'>
     <link rel="stylesheet" href="xtide.css">
   </head>
   <body>
@@ -17,9 +21,9 @@
 #if $g
       <div class="xg-title">$g.location</div>
       <div class="xg-tabs">
-        <button type="button" class="xg-tab xg-active" data-view="day">2 Days</button>
-        <button type="button" class="xg-tab" data-view="week">7 Days</button>
-        <button type="button" class="xg-tab" data-view="month">30 Days</button>
+        <button type="button" class="xg-tab xg-active" data-view="day">$gettext("2 Days")</button>
+        <button type="button" class="xg-tab" data-view="week">$gettext("7 Days")</button>
+        <button type="button" class="xg-tab" data-view="month">$gettext("30 Days")</button>
       </div>
       <div class="xg-wrap" id="xg-wrap-day">
         $g.svg_day
@@ -52,9 +56,8 @@
       <script>var XTIDE_DATA = $g.json;</script>
       <script src="xtide.js"></script>
 #else
-      <div class="xg-title">Tidal Events</div>
-      <p class="xg-empty">No tidal data to display.  Check the system log, and verify that the
-      tide program runs as the WeeWX user and that the location in weewx.conf is valid.</p>
+      <div class="xg-title">$gettext("Tidal Events")</div>
+      <p class="xg-empty">$gettext("No tidal data to display.  Check the system log, and verify that the tide program runs as the WeeWX user and that the location in weewx.conf is valid.")</p>
 #end if
     </div>
   </body>

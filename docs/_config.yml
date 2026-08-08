@@ -1,0 +1,6 @@
+# GitHub Pages configuration for https://chaunceygardiner.github.io/weewx-xtide/
+theme: jekyll-theme-primer
+title: weewx-xtide
+description: "Tide predictions for WeeWX -- an interactive tide graph and $xtide.events() report tags, powered by XTide"
+plugins:
+  - jekyll-sitemap

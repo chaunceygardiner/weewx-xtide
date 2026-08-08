@@ -318,13 +318,18 @@ class TestSampleTemplate:
     """End-to-end Cheetah render.  Compilation alone is NOT sufficient: with
     #errorCatcher Echo, failures render as un-substituted placeholders."""
 
-    def render(self, graph):
+    def render(self, graph, texts=None, lang='en'):
         from Cheetah.Template import Template
+        texts = texts or {}
         class StubXTide:
             def graph(self):
                 return graph
+        def gettext(key):
+            # What core weewx provides: the [Texts] value, English fallback.
+            val = texts.get(key, key)
+            return val if isinstance(val, str) else key
         tmpl = Template(file=os.path.join(REPO, 'skins', 'xtide', 'index.html.tmpl'),
-                        searchList=[{'xtide': StubXTide()}])
+                        searchList=[{'xtide': StubXTide(), 'gettext': gettext, 'lang': lang}])
         return str(tmpl)
 
     def test_renders_graph_page(self, make_tide):
@@ -346,6 +351,99 @@ class TestSampleTemplate:
         # Cheetah owns '#': colors belong in xtide.css, never in the template.
         text = open(os.path.join(REPO, 'skins', 'xtide', 'index.html.tmpl')).read()
         assert not re.search(r'#[0-9a-fA-F]{6}', text)
+
+
+LANG_DIR = os.path.join(REPO, 'skins', 'xtide', 'lang')
+LANG_CODES = ('en', 'de', 'fr', 'nl', 'es', 'da', 'it', 'no', 'sv')
+
+
+def lang_texts(code):
+    import configobj
+    path = os.path.join(LANG_DIR, '%s.conf' % code)
+    return dict(configobj.ConfigObj(path, encoding='utf-8', file_error=True)['Texts'])
+
+
+class TestI18n:
+    """The i18n contract: lang/en.conf ships exactly the $gettext/_t/_raw
+    keys that render (both directions), every language carries the same key
+    set, placeholders survive translation, and a German report renders
+    German.  Keys are single-line literals at every call site so these
+    tests can read them from the sources."""
+
+    @staticmethod
+    def rendered_keys():
+        tmpl = open(os.path.join(REPO, 'skins', 'xtide', 'index.html.tmpl')).read()
+        keys = set(m.group(2) for m in re.finditer(r'\$gettext\((["\'])(.+?)\1\)', tmpl))
+        src = open(os.path.join(REPO, 'bin', 'user', 'xtide.py')).read()
+        keys |= set(m.group(1) for m in re.finditer(r"self\._(?:t|raw)\(\s*'([^']+)'", src))
+        return keys
+
+    @staticmethod
+    def js_keys():
+        js = open(os.path.join(REPO, 'skins', 'xtide', 'xtide.js')).read()
+        keys = set()
+        for m in re.finditer(r"\btr\(([^)]*)\)", js):
+            keys |= set(re.findall(r"'([^']+)'", m.group(1)))
+        return keys
+
+    def test_en_conf_ships_exactly_what_renders(self):
+        rendered = self.rendered_keys()
+        assert rendered, 'no $gettext/_t/_raw keys found: extraction broken?'
+        en = lang_texts('en')
+        assert set(en) == rendered
+        for key, val in en.items():
+            assert val == key, 'en.conf must be the identity: %r' % key
+
+    def test_every_language_carries_the_same_key_set(self):
+        en_keys = set(lang_texts('en'))
+        for code in LANG_CODES[1:]:
+            assert set(lang_texts(code)) == en_keys, '%s.conf key set differs' % code
+
+    def test_placeholders_survive_translation(self):
+        # Translators may reorder {named} placeholders, never rename them.
+        for code in LANG_CODES:
+            for key, val in lang_texts(code).items():
+                assert (set(re.findall(r'\{(\w+)\}', key))
+                        == set(re.findall(r'\{(\w+)\}', val))), \
+                    '%s.conf placeholder mismatch for %r' % (code, key)
+
+    def test_translated_date_formats_are_valid_strftime(self):
+        when = datetime.datetime(2026, 8, 6, 9, 16)
+        for code in LANG_CODES:
+            for key, val in lang_texts(code).items():
+                if key.startswith('%'):
+                    assert when.strftime(val), '%s.conf bad format %r' % (code, val)
+
+    def test_js_keys_come_from_the_payload(self, make_tide):
+        g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC).build()
+        payload_t = json.loads(g.json)['T']
+        assert self.js_keys() <= set(payload_t), \
+            'xtide.js tr() key missing from the payload T dict'
+        for key, val in payload_t.items():
+            assert val == key  # no texts passed: English identity
+
+    def test_german_graph_and_page(self, make_tide):
+        de = lang_texts('de')
+        g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC, de).build()
+        assert g is not None
+        for ev in g.events:
+            assert ev['eventType'] in ('Hochwasser', 'Niedrigwasser')
+            assert ev['level_str'].endswith(' Fuß')
+            # de maps both long-form keys to a 24-hour day-first form
+            assert re.search(r'\d{2}:\d{2}$', ev['time_str'])
+            assert 'AM' not in ev['time_str'] and 'PM' not in ev['time_str']
+        assert 'Wasserstand (ft)' in g.svg_day
+        payload = json.loads(g.json)
+        assert payload['T']['High Tide'] == 'Hochwasser'
+        assert payload['T']['{n} tidal events.'] == '{n} Gezeitenereignisse.'
+        html = TestSampleTemplate().render(g, texts=de, lang='de')
+        assert '<html lang="de">' in html
+        assert '<title>Gezeiten</title>' in html
+        assert '2 Tage' in html
+        assert '$g' not in html
+        failure = TestSampleTemplate().render(None, texts=de, lang='de')
+        assert 'Keine Gezeitendaten' in failure
+        assert '$g' not in failure
 
 
 REAL_TIDE = os.environ.get('XTIDE_PROG', '/usr/local/bin/tide')

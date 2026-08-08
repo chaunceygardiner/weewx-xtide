@@ -456,9 +456,42 @@ class XTideGraphBuilder:
         ('month', 30, 3600),
     ]
 
-    def __init__(self, prog: str, location: str):
+    def __init__(self, prog: str, location: str, texts: Optional[Dict[str, Any]] = None):
         self.prog = prog
         self.location = location
+        # The report's [Texts] section (skin_dict with the lang file merged
+        # in), for the strings this builder composes server-side.
+        self.texts: Dict[str, Any] = texts if texts is not None else {}
+
+    # ── translation ──────────────────────────────────────────────────────
+    def _t(self, key: str, **values: Any) -> str:
+        """The [Texts] translation for key (gettext-style: the English
+        string IS the key, a missing entry falls back to it), escaped for
+        markup, then {name} placeholders filled from values.  Call sites
+        always pass the key as a single-line literal: the test suite reads
+        them from this source file to enforce that lang/en.conf ships
+        exactly the keys that render, in both directions."""
+        s = self.texts.get(key, key)
+        if not isinstance(s, str):
+            s = key
+        s = s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        if not values:
+            return s
+        try:
+            return s.format(**values)
+        except (KeyError, IndexError, ValueError):
+            # A translation with broken placeholders must not blank the
+            # page: fall back to the English key, which always formats.
+            return key.format(**values)
+
+    def _raw(self, key: str) -> str:
+        """The [Texts] translation for key, unescaped: strftime formats
+        (the skyfield date pattern -- the format string itself is the key,
+        so a language reorders day and month, while the NAMES %a/%b emit
+        come from the weewxd process locale) and strings bound for the
+        json payload, which land in the page via textContent."""
+        s = self.texts.get(key, key)
+        return s if isinstance(s, str) else key
 
     def build(self) -> Optional[XTideGraph]:
         try:
@@ -498,9 +531,17 @@ class XTideGraphBuilder:
                            'pw': self.W - self.ML - self.MR, 'ph': self.H - self.MT - self.MB},
                 'views': views,
                 'events': [[ev[0], round(ev[1], 3), ev[2]] for ev in tides if begin <= ev[0] <= month_end],
+                # Strings xtide.js composes client-side, translated at
+                # generation time (json.dumps \u-escapes non-ASCII).
+                'T': {
+                    'High Tide': self._raw('High Tide'),
+                    'Low Tide': self._raw('Low Tide'),
+                    '{n} tidal events.': self._raw('{n} tidal events.'),
+                },
             }
-            unit_long = 'feet' if unit == 'ft' else 'meters'
-            time_fmt = '%a, %b %d, %Y %I:%M %p' if use_12_hour_labels() else '%a, %b %d, %Y %H:%M'
+            unit_long = self._t('feet') if unit == 'ft' else self._t('meters')
+            time_fmt = (self._raw('%a, %b %d, %Y %I:%M %p') if use_12_hour_labels()
+                        else self._raw('%a, %b %d, %Y %H:%M'))
             events_display = []
             for ts, level, event_type in tides:
                 if not begin <= ts <= month_end:
@@ -508,7 +549,7 @@ class XTideGraphBuilder:
                 high = event_type == EventType.HIGH_TIDE.value
                 events_display.append({
                     'ts'       : ts,
-                    'eventType': 'High Tide' if high else 'Low Tide',
+                    'eventType': self._t('High Tide') if high else self._t('Low Tide'),
                     'icon'     : 'high-tide.png' if high else 'low-tide.png',
                     'level_str': '%.2f %s' % (level, unit_long),
                     'time_str' : datetime.datetime.fromtimestamp(ts).astimezone().strftime(time_fmt),
@@ -647,46 +688,52 @@ class XTideGraphBuilder:
         s.append('<polyline class="xg-curve" points="%s"/>' % points)
         # Event markers (labels on the day view only; elsewhere the tooltip serves)
         radius = {'day': 4.5, 'week': 3.5, 'month': 2.5}[name]
-        use_12h = use_12_hour_labels()
+        # The leading zero is stripped only from 12-hour times ("9:16 AM");
+        # a 24-hour "09:16" keeps it, including via a translated format.
+        marker_fmt = self._raw('%I:%M %p') if use_12_hour_labels() else self._raw('%H:%M')
         for ts, level, event_type in tides:
             high = event_type == EventType.HIGH_TIDE.value
             px, py = x(ts), y(level)
             s.append('<circle class="%s" cx="%.1f" cy="%.1f" r="%s"/>' % ('xg-hi' if high else 'xg-lo', px, py, radius))
             if name == 'day':
-                ev_dt = datetime.datetime.fromtimestamp(ts).astimezone()
-                time_lbl = ev_dt.strftime('%I:%M %p').lstrip('0') if use_12h else ev_dt.strftime('%H:%M')
+                time_lbl = datetime.datetime.fromtimestamp(ts).astimezone().strftime(marker_fmt)
+                if '%I' in marker_fmt:
+                    time_lbl = time_lbl.lstrip('0')
                 label = '%.2f %s · %s' % (level, unit, time_lbl)
                 lx = min(max(px, self.ML + 60), self.W - self.MR - 60)
                 ly = max(py - 12, self.MT + 12) if high else min(py + 20, self.MT + ph - 6)
                 s.append('<text class="xg-lab xg-evlab" x="%.1f" y="%.1f">%s</text>' % (lx, ly, label))
         # Unit reminder, frame, and the javascript-positioned "now" marker
-        s.append('<text class="xg-lab xg-unitlab" x="%d" y="%d">Tide (%s)</text>' % (self.ML + 8, self.MT + 16, unit))
+        s.append('<text class="xg-lab xg-unitlab" x="%d" y="%d">%s</text>' % (self.ML + 8, self.MT + 16, self._t('Tide ({unit})', unit=unit)))
         s.append('<rect class="xg-frame" x="%d" y="%d" width="%d" height="%d"/>' % (self.ML, self.MT, pw, ph))
         s.append('<line class="xg-nowline" x1="-10" y1="%d" x2="-10" y2="%d"/>' % (self.MT, self.MT + ph))
         s.append('</svg>')
         return ''.join(s), vlo, vhi
 
-    @staticmethod
-    def time_ticks(name: str, t0: int, t1: int) -> List[Tuple[float, str]]:
+    def time_ticks(self, name: str, t0: int, t1: int) -> List[Tuple[float, str]]:
         ticks: List[Tuple[float, str]] = []
         if name == 'day':
-            use_12h = use_12_hour_labels()
+            hour_fmt = self._raw('%I %p') if use_12_hour_labels() else self._raw('%H')
             t: float = t0
             while t <= t1:
                 dt = datetime.datetime.fromtimestamp(t).astimezone()
-                label = dt.strftime('%I %p').lstrip('0') if use_12h else dt.strftime('%H')
+                label = dt.strftime(hour_fmt)
+                if '%I' in hour_fmt:
+                    label = label.lstrip('0')
                 if dt.hour == 0:
                     label = dt.strftime('%a')
                 ticks.append((t, label))
                 t += 6 * 3600
         elif name == 'week':
+            fmt = self._raw('%a %d')
             for k in range(8):
                 t = t0 + k * 86400
-                ticks.append((t, datetime.datetime.fromtimestamp(t).astimezone().strftime('%a %d')))
+                ticks.append((t, datetime.datetime.fromtimestamp(t).astimezone().strftime(fmt)))
         else:
+            fmt = self._raw('%b %d')
             for k in range(0, 31, 5):
                 t = t0 + k * 86400
-                ticks.append((t, datetime.datetime.fromtimestamp(t).astimezone().strftime('%b %d')))
+                ticks.append((t, datetime.datetime.fromtimestamp(t).astimezone().strftime(fmt)))
         return ticks
 
 
@@ -722,7 +769,11 @@ class XTideVariables(SearchList):
             if location is None:
                 log.error('graph: location must be specified.')
             else:
-                self._graph = XTideGraphBuilder(prog, location).build()
+                # The report's [Texts], with the lang file already merged
+                # over skin.conf by WeeWX; the builder translates the
+                # strings it composes server-side.
+                texts = self.generator.skin_dict.get('Texts', {})
+                self._graph = XTideGraphBuilder(prog, location, texts).build()
         return self._graph
 
     def events(self, max_events: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -796,7 +847,7 @@ if __name__ == '__main__':
 
         parser = optparse.OptionParser(usage=usage)
         parser.add_option('--test-service', dest='testserv', action='store_true',
-                          help='Test the XTide service.  Requires --location.')
+                          help='Test the XTide service.  Requires --location.  Optional --prog.')
         parser.add_option('--test-tide-execution', dest='testexec', action='store_true',
                           help='Test fetching tidal events.  Requires --location.  Optional --prog.  Optional --days')
         parser.add_option('--location', type='str', dest='location',
@@ -816,7 +867,7 @@ if __name__ == '__main__':
         if options.testserv:
             if not options.location:
                 parser.error('--test-service requires --location')
-            test_service(options.location)
+            test_service(options.location, options.prog if options.prog else '/usr/bin/tide')
 
         if options.testexec:
             if not options.location:
@@ -843,7 +894,7 @@ if __name__ == '__main__':
 
             view_sqlite_database(options.db)
 
-    def test_service(location: str) -> None:
+    def test_service(location: str, prog: str) -> None:
         from weewx.engine import StdEngine
         from tempfile import NamedTemporaryFile
 
@@ -861,8 +912,8 @@ if __name__ == '__main__':
                     'archive_interval': 300},
                 'XTide': {
                     'binding': 'xtide_binding',
-                    'location': 'Palo Alto',
-                    'prog': '/home/jkline/software/xtide-2.15.5/tide'},
+                    'location': location,
+                    'prog': prog},
                 'DataBindings': {
                     'xtide_binding': {
                         'database': 'xtide_sqlite',

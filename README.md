@@ -1,6 +1,10 @@
 # weewx-xtide
 Open source plugin for WeeWX software.
 
+[User manual](https://chaunceygardiner.github.io/weewx-xtide/) ·
+[Releases](https://github.com/chaunceygardiner/weewx-xtide/releases) ·
+[Issues](https://github.com/chaunceygardiner/weewx-xtide/issues)
+
 ## Description
 
 A WeeWX extension for XTide.  XTide is a package that provides tide and current predictions in a wide variety of formats.  With this extension, one can include high and low tide predictions for a given location in reports.
@@ -11,10 +15,22 @@ sunrise) shading, a "now" line, and click/hover anywhere on the curve to see the
 time and tide level.  The tidal events for the selected view are listed below the graph.
 The page is self-contained (no javascript libraries, nothing fetched at run time).
 
+![The tide page](XTideSampleReport.png)
+
+The sample report speaks nine languages: English, Danish, Dutch, French, German,
+Italian, Norwegian, Spanish and Swedish.  To pick one, set `lang` on the report's
+stanza in weewx.conf (e.g. `lang = de`, or `lang = de_DE.UTF-8` to also localize
+month and weekday names) — details in the manual's
+[Translating the tide page](https://chaunceygardiner.github.io/weewx-xtide/i18n.html).
+The non-English translations are Beta, pending native-speaker review — corrections are
+welcome as [GitHub issues](https://github.com/chaunceygardiner/weewx-xtide/issues).
+
+![The tide page in German](XTideSampleReport-de.png)
+
 For more information about xtide (a package required to use this extension), see [flaterco.com's xtide page](https://flaterco.com/xtide/).
 
-One can see this extension in action on [PaloAltoWeather.com](https://www.paloaltoweather.com/tides.html)
-![XTide Tidal Forecasts screenshot](PaloAltoWeather_Tides.png)
+One can see this extension in action on
+[PaloAltoWeather.com](https://www.paloaltoweather.com/tides.html).
 
 
 Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
@@ -77,8 +93,8 @@ Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
    . /home/weewx/weewx-venv/bin/activate
    ```
 
-1. Download the release from the [github](https://github.com/chaunceygardiner/weewx-xtide).
-   Click on releases and pick the latest release (Release v2.0).
+1. Download `weewx-xtide.zip` from the latest release on the
+   [releases page](https://github.com/chaunceygardiner/weewx-xtide/releases).
 
 1. Install the xtide extension.
    ```
@@ -147,9 +163,6 @@ Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
     $event.eventType: High Tide
     $event.level    : 6.34 feet
     ```
-    A screenshot follows:
-
-    ![XTide Tidal Forecasts screenshot](tidal_forecasts.png)
 
 ## Troubleshooting
 
@@ -172,7 +185,7 @@ Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
        Activate the virtual environment (if using WeeWX 5).
        In the following command line, make sure to set --prog to the location of the tide program
        ```
-       PYTHONPATH=/home/weewx/bin python bin/user/xtide.py --test-tide-execution --location "Palo Alto" --prog /usr/local/bin/tide
+       PYTHONPATH=/home/weewx/bin python3 /home/weewx/bin/user/xtide.py --test-service --location "Palo Alto Yacht Harbor, San Francisco Bay, California" --prog /usr/local/bin/tide
        ```
  
     c. To view tide forecast records in the database (only works for sqlite databases):

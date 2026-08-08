@@ -1,5 +1,14 @@
-3.0 (not yet released)
-----------------------
+3.0 08/07/2026
+--------------
+The sample tide report is now internationalized.  Nine languages ship:
+    English, Danish, Dutch, French, German, Italian, Norwegian, Spanish
+    and Swedish.  Pick one with lang = <code> on the report's stanza in
+    weewx.conf (e.g. lang = de); the default remains English.  The
+    English string is the [Texts] key and any missing translation falls
+    back to English one string at a time.  Date formats follow the
+    report language; month and weekday names come from the server's
+    locale, as in WeeWX itself.  Non-English translations are Beta,
+    pending native-speaker review; corrections welcome on GitHub.
 Fix: weewx failed to start on systems running a non-English locale
     (German, French, Danish, Spanish, ...).  The tide program's event
     times are always English ("9:16 AM UTC"), but they were parsed with
@@ -12,6 +21,9 @@ Change: the sample skin's graph and tide-list time labels now use
     most of continental Europe); 12-hour AM/PM strings would have
     rendered there as an ambiguous "9:16".  English-locale systems are
     unchanged.
+Fix: xtide.py --test-service now honors --location and --prog; it
+    previously ignored them in favor of a hard-coded location and a tide
+    path that no longer exists.
 Fix: tide event times were parsed in the WeeWX server's local timezone,
     so a tide station in a different timezone than the server got events
     shifted by the timezone difference (stations reporting UTC), or no
