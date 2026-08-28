@@ -1,15 +1,17 @@
 ---
-title: weewx-xtide tags in your skin
+title: Tags in your skin
+layout: default
+nav_order: 4
 description: $xtide.events() — upcoming high/low tides as data with WeeWX unit formatting — and $xtide.graph() for embedding the interactive tide graph in your own skin.
 ---
 
 # Tags in your skin
 
-[Home](index.md) ·
-[Installation](installation.md) ·
-[Configuration](configuration.md) ·
-[Translating (i18n)](i18n.md) ·
-[GitHub project](https://github.com/chaunceygardiner/weewx-xtide)
+[weewx-xtide manual](https://chaunceygardiner.github.io/weewx-xtide/) ·
+[weewx-xtide on GitHub](https://github.com/chaunceygardiner/weewx-xtide) ·
+[Report an issue](https://github.com/chaunceygardiner/weewx-xtide/issues)
+
+---
 
 ## $xtide.events()
 

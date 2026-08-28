@@ -1,6 +1,48 @@
 # GitHub Pages configuration for https://chaunceygardiner.github.io/weewx-xtide/
-theme: jekyll-theme-primer
 title: weewx-xtide
-description: "Tide predictions for WeeWX -- an interactive tide graph and $xtide.events() report tags, powered by XTide"
+description: >-
+  Tide predictions for WeeWX -- an interactive tide graph in nine
+  languages, plus $xtide.events() tags for your own reports, powered by
+  XTide.
+url: "https://chaunceygardiner.github.io"
+baseurl: "/weewx-xtide"
+
+# Pinned to the same version the other manuals render from, so they cannot
+# drift apart when upstream releases.
+remote_theme: just-the-docs/just-the-docs@v0.12.0
 plugins:
+  - jekyll-remote-theme
   - jekyll-sitemap
+  # Turns the .md links between pages into real URLs.  GitHub Pages enables
+  # this by default; naming it here keeps a local jekyll build identical.
+  - jekyll-relative-links
+
+search_enabled: true
+heading_anchors: true
+
+aux_links:
+  "weewx-xtide on GitHub":
+    - "https://github.com/chaunceygardiner/weewx-xtide"
+aux_links_new_tab: true
+
+# External links shown at the bottom of the left sidebar nav, on every page.
+nav_external_links:
+  - title: weewx-xtide on GitHub
+    url: https://github.com/chaunceygardiner/weewx-xtide
+  - title: Download weewx-xtide.zip
+    url: https://github.com/chaunceygardiner/weewx-xtide/releases/latest/download/weewx-xtide.zip
+
+callouts:
+  note:
+    title: Note
+    color: blue
+  important:
+    title: Important
+    color: red
+  tip:
+    title: Tip
+    color: green
+
+footer_content: >-
+  weewx-xtide is Copyright &copy; 2024&ndash;2026 John A Kline and is
+  licensed under the GNU Public License v3.

@@ -1,15 +1,17 @@
 ---
-title: Configuring weewx-xtide
+title: Configuration
+layout: default
+nav_order: 3
 description: The [XTide] options (location, prog, days), enabling $xtide.events() in your reports, the sample report's options, and troubleshooting from the command line.
 ---
 
 # Configuring weewx-xtide
 
-[Home](index.md) ·
-[Installation](installation.md) ·
-[Tags in your skin](tags.md) ·
-[Translating (i18n)](i18n.md) ·
-[GitHub project](https://github.com/chaunceygardiner/weewx-xtide)
+[weewx-xtide manual](https://chaunceygardiner.github.io/weewx-xtide/) ·
+[weewx-xtide on GitHub](https://github.com/chaunceygardiner/weewx-xtide) ·
+[Report an issue](https://github.com/chaunceygardiner/weewx-xtide/issues)
+
+---
 
 The installer seeds an `[XTide]` section in weewx.conf:
 

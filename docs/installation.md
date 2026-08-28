@@ -1,15 +1,17 @@
 ---
-title: Installing weewx-xtide
+title: Installation
+layout: default
+nav_order: 2
 description: Build XTide from source (libtcd, tide, harmonics data), verify it runs as the WeeWX user, then install the weewx-xtide extension.
 ---
 
 # Installing weewx-xtide
 
-[Home](index.md) ·
-[Configuration](configuration.md) ·
-[Tags in your skin](tags.md) ·
-[Translating (i18n)](i18n.md) ·
-[GitHub project](https://github.com/chaunceygardiner/weewx-xtide)
+[weewx-xtide manual](https://chaunceygardiner.github.io/weewx-xtide/) ·
+[weewx-xtide on GitHub](https://github.com/chaunceygardiner/weewx-xtide) ·
+[Report an issue](https://github.com/chaunceygardiner/weewx-xtide/issues)
+
+---
 
 Installation is two independent steps: build and install **XTide** (the
 `tide` program and its harmonics data), then install the **weewx-xtide

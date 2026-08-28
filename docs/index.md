@@ -1,5 +1,8 @@
 ---
-title: weewx-xtide — Tide predictions for WeeWX
+title: Home
+layout: default
+nav_order: 1
+permalink: /
 description: A WeeWX extension for XTide — an interactive tide graph in nine languages, plus $xtide.events() tags for your own reports.
 ---
 
@@ -9,13 +12,9 @@ description: A WeeWX extension for XTide — an interactive tide graph in nine l
 `$xtide.events()` tags for your own reports, powered by
 [XTide](https://flaterco.com/xtide/).
 
-[Installation](installation.md) ·
-[Configuration](configuration.md) ·
-[Tags in your skin](tags.md) ·
-[Translating (i18n)](i18n.md) ·
-[GitHub project](https://github.com/chaunceygardiner/weewx-xtide)
-
----
+[View on GitHub](https://github.com/chaunceygardiner/weewx-xtide){: .btn .btn-primary }
+[Download weewx-xtide.zip](https://github.com/chaunceygardiner/weewx-xtide/releases/latest/download/weewx-xtide.zip){: .btn }
+[Report an issue](https://github.com/chaunceygardiner/weewx-xtide/issues){: .btn }
 
 weewx-xtide runs XTide's `tide` program for a station you choose, keeps the
 high/low tide predictions in its own small database, and serves them to
