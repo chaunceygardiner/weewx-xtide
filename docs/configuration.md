@@ -13,18 +13,31 @@ description: The [XTide] options (location, prog, days), enabling $xtide.events(
 
 ---
 
-The installer seeds an `[XTide]` section in weewx.conf:
+The installer seeds an `[XTide]` section in weewx.conf.  A fresh install
+gets this, each option introduced by a comment (trimmed here):
 
 ```ini
 [XTide]
-    location = Palo Alto Yacht Harbor, San Francisco Bay, California
+    data_binding = xtide_binding
+    #days = 7
+    location = "Palo Alto Yacht Harbor, San Francisco Bay, California"
     prog = /usr/bin/tide
-    days = 7
 ```
+
+An option written commented out is one the extension supplies for itself.
+Leave it commented and the extension's own value governs, including a
+better one a later release might bring; uncomment it to pin this station
+to the value written there.
+
+Installing an extension fills in options that are missing from weewx.conf
+and never rewrites one that is already there, so your own file may not
+look like the above: where it reads `#days = 7`, uncomment the line and
+change the value; where it reads `days = 7`, just change the value.  The
+same goes for an upgrade — it leaves the section you already have alone.
 
 | Option | What it does |
 |---|---|
-| `location` | The tide station, matched by XTide's own prefix rules.  Stations are listed at [flaterco.com's locations page](https://flaterco.com/xtide/locations.html).  Any station works, in any timezone — all times are handled in UTC internally and displayed in the server's local time. |
+| `location` | The tide station, matched by XTide's own prefix rules.  Stations are listed at [flaterco.com's locations page](https://flaterco.com/xtide/locations.html).  Any station works, in any timezone — all times are handled in UTC internally and displayed in the server's local time.  Keep the quotation marks: a name containing commas is read as a list without them. |
 | `prog` | Where the `tide` program is.  The default is `/usr/bin/tide` for legacy reasons; an XTide built per [Installation](installation.md) lands at `/usr/local/bin/tide`, so set this. |
 | `days` | How many days of tidal events to keep in the database for `$xtide.events()` (default 7).  The sample report's graph is not affected: it always shows 30 days. |
 | `data_binding` | The WeeWX data binding (default `xtide_binding`, seeded by the installer along with its database, `xtide.sdb`). |

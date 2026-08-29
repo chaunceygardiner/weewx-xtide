@@ -109,6 +109,31 @@ class Configuration:
     events   : List[Event]    # Controlled by lock
 
 
+def config_location(xtide_config_dict, log_unquoted: bool = False) -> Optional[str]:
+    """The station name from weewx.conf's [XTide], or None if unset.
+
+    A station name almost always contains commas, and weewx.conf reads an
+    unquoted comma-separated value as a LIST -- so a hand-written
+        location = Palo Alto Yacht Harbor, San Francisco Bay, California
+    arrives here as three strings.  Rejoin them: that is plainly what was
+    meant, and left alone the list reaches tide's -l argument, where
+    subprocess raises a TypeError that never mentions location -- during
+    the startup fetch, so weewx does not start at all.
+
+    Only the caller that runs once per weewxd asks for the rejoin to be
+    logged: the report path builds a fresh XTideVariables every reporting
+    cycle, and logging there would repeat the same line for ever.
+    """
+    location = xtide_config_dict.get('location', None)
+    if isinstance(location, list):
+        location = ', '.join(location)
+        if log_unquoted:
+            log.info('location is unquoted in weewx.conf and was read as a '
+                     'list; using \'%s\'.  Quote it to be rid of this '
+                     'message.' % location)
+    return location
+
+
 class XTide(StdService):
     """Fetch XTide Forecasts"""
     def __init__(self, engine, config_dict):
@@ -139,7 +164,7 @@ class XTide(StdService):
             log.error('You must delete the xtide.sdb database and restart weewx.  It contains an old schema!')
             return
 
-        location    = self.xtide_config_dict.get('location', None)
+        location    = config_location(self.xtide_config_dict, log_unquoted=True)
         if location is None:
             log.error('location must be specified.')
             return
@@ -148,7 +173,7 @@ class XTide(StdService):
             lock        = threading.Lock(),
             location    = location,
             prog        = self.xtide_config_dict.get('prog', '/usr/bin/tide'),
-            days = to_int(self.xtide_config_dict.get('days', 14)),
+            days = to_int(self.xtide_config_dict.get('days', 7)),
             events      = [],
             )
 
@@ -764,7 +789,7 @@ class XTideVariables(SearchList):
         if not self._graph_built:
             self._graph_built = True
             xtide_dict = self.generator.config_dict.get('XTide', {})
-            location = xtide_dict.get('location', None)
+            location = config_location(xtide_dict)
             prog = xtide_dict.get('prog', '/usr/bin/tide')
             if location is None:
                 log.error('graph: location must be specified.')
@@ -876,7 +901,7 @@ if __name__ == '__main__':
                 lock      = threading.Lock(),
                 location  = options.location,
                 prog      = options.prog if options.prog else '/usr/bin/tide',
-                days      = options.days if options.days else 14,
+                days      = options.days if options.days else 7,
                 events    = [],
                 )
             if not os.path.isfile(cfg.prog):

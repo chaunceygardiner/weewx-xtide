@@ -108,9 +108,11 @@ Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
 1. By default, xtide will request tides for Palo Alto Yacht Harbor, San Francisco Bay, California
    Change the location tag **under XTide** in weewx.conf to a location for which tidal data exists.
    Locations can be found at (https://flaterco.com/xtide/locations.html).
+   Keep the quotation marks: a station name usually contains commas, and weewx.conf reads an
+   unquoted comma-separated value as a list rather than as one name.
    ```
    [XTide]
-    location = Palo Alto Yacht Harbor, San Francisco Bay, California
+    location = "Palo Alto Yacht Harbor, San Francisco Bay, California"
    ```
 
 1. For legacy reasons, by default, this extension looks for the tide program at /usr/bin/tide, but if you followed the instructions above, the tide program
@@ -123,9 +125,12 @@ Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
 1. By default, xtide will keep 7 days of tidal events in the database for use with
    $xtide.events() in your own reports.  One can change this in weewx.conf.  (The
    sample report's graph is not affected by this setting; it always shows 30 days.)
+   Where the section reads `#days = 7`, uncomment the line and change the value;
+   where it reads `days = 7`, just change the value.  Left commented out, the
+   extension supplies the default itself.
    ```
    [XTide]
-    days = 7
+    #days = 7
    ```
 
 1. Add XTideVariables to each report that you want to have access to tidal events.

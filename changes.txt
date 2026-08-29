@@ -1,3 +1,31 @@
+3.0.1 (in progress)
+-------------------
+The installer now writes a commented [XTide] section into weewx.conf.
+    Every option carries a sentence saying what it does, and location
+    and prog -- the two that must be edited -- are marked PLACEHOLDER.
+    The days option is written commented out, showing the value the
+    extension uses: leave it commented and the extension's own default
+    governs, including a better one a later release might bring, or
+    uncomment it to pin this station to the value written there.  This
+    affects fresh installs only.  Installing an extension fills in
+    options that are missing from weewx.conf and never rewrites one
+    that is already there, so an existing weewx.conf is untouched --
+    where it reads #days = 7, uncomment the line to change it; where it
+    reads days = 7, edit the value.
+Fix: a location written into weewx.conf without quotation marks --
+    as the README's own example showed it -- was read as a list rather
+    than as one station name, and weewx then failed to start, with an
+    error that never mentioned location.  Such a location is now
+    rejoined into the name that was meant.  Quoting it is still the
+    right thing to do, and the README and the manual now say so.
+Change: the days default in xtide.py is now 7, which is what the
+    installer has always written into weewx.conf and what the README
+    and the manual have always documented; the code fell back to 14
+    when the option was absent.  No station changes behavior: an
+    installed weewx.conf carries days, so the fallback was only ever
+    reached by a hand-written [XTide] section with no days in it.
+    xtide.py --test-tide-execution now also defaults to 7 days.
+
 3.0 08/07/2026
 --------------
 The sample tide report is now internationalized.  Nine languages ship:

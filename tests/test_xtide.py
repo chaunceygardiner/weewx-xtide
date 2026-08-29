@@ -14,7 +14,11 @@ No real tide program is needed: every test drives the code through fake
 America/Los_Angeles for reproducible local-midnight math.
 """
 import datetime
+import importlib
+import importlib.util
+import io
 import json
+import logging
 import os
 import re
 import subprocess
@@ -22,6 +26,9 @@ import sys
 import threading
 import time
 
+from unittest import mock
+
+import configobj
 import pytest
 
 os.environ['TZ'] = 'America/Los_Angeles'
@@ -31,6 +38,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, 'bin', 'user'))
 
 import weewx  # noqa: E402
+import weewx.manager  # noqa: E402
+import weeutil.config  # noqa: E402
 import xtide  # noqa: E402
 
 LOC = 'Palo Alto Yacht Harbor, San Francisco Bay, California'
@@ -598,3 +607,304 @@ class TestShutdownPassthrough:
                 raise TestShutdownPassthrough.Terminate('shutdown')
         with pytest.raises(TestShutdownPassthrough.Terminate):
             xtide.XTideVariables.fetch_records(FakeDbm())
+
+
+class TestUnquotedLocation:
+    """A station name written into weewx.conf without quotes.  Its commas
+    make ConfigObj hand back a LIST, which used to reach tide's -l argument
+    and raise a TypeError inside the startup fetch -- so weewx would not
+    start, with a traceback that never said 'location'.  The README showed
+    the value unquoted for years, so the affected stations are the ones
+    that followed it."""
+
+    @staticmethod
+    def unquoted_conf():
+        """[XTide] exactly as an unquoted location parses."""
+        text = '[XTide]\n    location = %s\n' % LOC
+        parsed = configobj.ConfigObj(io.StringIO(text), encoding='utf-8')
+        # Guard the premise: if ConfigObj ever stops splitting on commas,
+        # this whole class is testing nothing.
+        assert isinstance(parsed['XTide']['location'], list)
+        return parsed['XTide']
+
+    def test_a_list_is_rejoined(self, caplog):
+        caplog.set_level(logging.INFO)
+        assert xtide.config_location(self.unquoted_conf()) == LOC
+        # Silent unless the caller asks: graph() runs this every reporting
+        # cycle, and logging there would repeat the line for ever.
+        assert caplog.text == ''
+        assert xtide.config_location(self.unquoted_conf(),
+                                     log_unquoted=True) == LOC
+        assert 'unquoted' in caplog.text
+
+    def test_a_quoted_location_is_untouched(self, caplog):
+        caplog.set_level(logging.INFO)
+        assert xtide.config_location({'location': LOC}, log_unquoted=True) == LOC
+        assert caplog.text == ''
+
+    def test_absent_location_is_still_none(self):
+        # None is what XTide.__init__ and graph() test for; a rejoin that
+        # turned it into '' would defeat both.
+        assert xtide.config_location({}) is None
+
+    def test_the_service_starts_with_an_unquoted_location(self, make_tide):
+        """The bug's real shape: the fetch in XTide.__init__ is synchronous,
+        so the TypeError escaped it and weewx never started.  The fetch is
+        REAL here (a fake tide program): mocking it away, as the installer
+        tests do, would leave this passing with the fix removed."""
+        xtide_dict = dict(self.unquoted_conf(), prog=make_tide(SIMULATOR),
+                          days=2)
+        engine = mock.Mock()
+        dbm = engine.db_binder.get_manager.return_value
+        dbm.connection.columnsOf.return_value = [c[0] for c in xtide.schema['table']]
+        config_dict = {'XTide': xtide_dict, 'DataBindings': {}, 'Databases': {}}
+        with mock.patch.object(weewx.manager, 'get_manager_dict',
+                               return_value={'schema': xtide.schema}), \
+             mock.patch.object(xtide.XTidePoller, 'poll_xtide'):
+            service = xtide.XTide(engine, config_dict)
+        assert service.cfg.location == LOC
+        assert service.cfg.events, 'tide was never run'
+
+    def test_the_graph_gets_a_string(self, make_tide, caplog):
+        """graph() reads location straight out of config_dict too, so it
+        had the same fault and needs the same fix -- silently: a fresh
+        XTideVariables is built every reporting cycle, so a log line here
+        would repeat for as long as the station runs."""
+        caplog.set_level(logging.INFO)
+        prog = make_tide(SIMULATOR)
+        generator = mock.Mock()
+        generator.config_dict = {'XTide': dict(self.unquoted_conf(),
+                                               prog=str(prog))}
+        generator.skin_dict = {'Texts': {}}
+        variables = xtide.XTideVariables.__new__(xtide.XTideVariables)
+        variables.generator = generator
+        variables._graph = None
+        variables._graph_built = False
+        graph = variables.graph()
+        assert graph is not None, 'tide was never run: location was not a string'
+        assert 'unquoted' not in caplog.text, 'the report path must not log'
+
+
+class TestInstallerConfig:
+    """install.py's config stanza.  It is read exactly once in a station's
+    life, by a fresh `weectl extension install`: weecfg merges it with
+    weeutil.config.conditional_merge, which fills in absent keys only and
+    NEVER rewrites one that is already there.  So a wrong value here ships
+    silently and no later release can correct it -- which is why every
+    option the extension can answer for itself is written COMMENTED OUT,
+    leaving xtide.py's own fallback to govern -- and leaving a better
+    default in some later release free to reach every existing station."""
+
+    # Live in [XTide], pinned as a COMPLETE SET below rather than by
+    # checking today's commented options are absent: a future release that
+    # adds a new option LIVE against a fallback in xtide.py is the very
+    # drift this scheme exists to stop, and a named-absence check would
+    # not see it.  Adding a live key has to be a deliberate edit here.
+    LIVE_XTIDE_OPTIONS = ['data_binding', 'location', 'prog']
+
+    # A commented-out assignment ('#days = 7'), never a prose comment,
+    # which always has a space after the '#'.
+    COMMENTED_OPTION_RE = re.compile(r'^(\s*)#(\w+)\s*=\s*(.+?)\s*$')
+    SECTION_RE = re.compile(r'^\s*(\[+)([^\]]+)\]+\s*$')
+
+    # A weewx.conf that has no [XTide] but DOES have the other three
+    # sections the stanza contributes to -- the shape of every real
+    # station, and the only shape in which the drop below is visible.
+    # Parsed from text rather than built empty: ConfigObj takes its
+    # indent_type from what it read, and a bare ConfigObj() writes flush
+    # left, which would make the indentation assertion meaningless.
+    TARGET_CONF = """[Station]
+    location = home
+[DataBindings]
+    [[wx_binding]]
+        database = archive_sqlite
+[Databases]
+    [[archive_sqlite]]
+        database_name = weewx.sdb
+[StdReport]
+    [[SeasonsReport]]
+        skin = Seasons
+"""
+
+    @staticmethod
+    def install_module():
+        """install.py, loaded as a module.  Loading it needs
+        weecfg.extension imported first: that module aliases itself in
+        sys.modules as 'setup' for installers written against the pre-5.0
+        name, which is what install.py's own import resolves through."""
+        importlib.import_module('weecfg.extension')  # registers the alias
+        spec = importlib.util.spec_from_file_location(
+            'xtide_install', os.path.join(REPO, 'install.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    @classmethod
+    def installer_config(cls):
+        return cls.install_module().XTideInstaller()['config']
+
+    @classmethod
+    def commented_options(cls):
+        """install.py's commented-out assignments, as {section: {option:
+        value}}.  Read out of CONFIG as TEXT because a commented-out option
+        is by definition absent from the parsed object -- any test that
+        walked the parsed stanza would quietly stop covering it."""
+        found = {}
+        section = None
+        for line in cls.install_module().CONFIG.splitlines():
+            header = cls.SECTION_RE.match(line)
+            if header:
+                section = header.group(2).strip()
+                continue
+            option = cls.COMMENTED_OPTION_RE.match(line)
+            if option:
+                found.setdefault(section, {})[option.group(2)] = option.group(3)
+        return found
+
+    @staticmethod
+    def days_the_service_uses(xtide_dict):
+        """What XTide actually runs with, given this [XTide] section.  The
+        fallback is applied inline in XTide.__init__, so reading it takes a
+        started service: the engine, the manager dict and the poller's work
+        are mocked away, leaving the config handling itself real.  The seam
+        is poll_xtide rather than threading.Thread -- xtide.threading IS the
+        stdlib module, so patching Thread there would hand a Mock to any
+        other code that started a thread in the same window.  A real daemon
+        thread starts here and exits at once on the mocked target."""
+        engine = mock.Mock()
+        dbm = engine.db_binder.get_manager.return_value
+        dbm.connection.columnsOf.return_value = [c[0] for c in xtide.schema['table']]
+        config_dict = {'XTide': xtide_dict, 'DataBindings': {}, 'Databases': {}}
+        with mock.patch.object(weewx.manager, 'get_manager_dict',
+                               return_value={'schema': xtide.schema}), \
+             mock.patch.object(xtide.XTidePoller, 'populate_tidal_events'), \
+             mock.patch.object(xtide.XTidePoller, 'poll_xtide'):
+            service = xtide.XTide(engine, config_dict)
+        return service.cfg.days
+
+    def test_version_is_in_lockstep(self):
+        """The version lives in three places and they must agree:
+        install.py's version=, WEEWX_XTIDE_VERSION in xtide.py, and
+        [Extras] version in skins/xtide/skin.conf.  A release that bumps
+        two of the three ships a skin reporting the wrong version, which
+        nothing else would catch."""
+        installer_version = self.install_module().XTideInstaller()['version']
+        skin = configobj.ConfigObj(
+            os.path.join(REPO, 'skins', 'xtide', 'skin.conf'),
+            encoding='utf-8', file_error=True)
+        assert installer_version == xtide.WEEWX_XTIDE_VERSION
+        assert skin['Extras']['version'] == xtide.WEEWX_XTIDE_VERSION
+
+    def test_html_root_is_a_bare_subdirectory(self):
+        """HTML_ROOT must NOT carry a public_html prefix: weecfg prepends
+        the installation's own StdReport HTML_ROOT at install time
+        (ExtensionEngine.install_config -> prepend_path), so 'xtide'
+        becomes public_html/xtide -- or whatever that installation uses.
+        'public_html/xtide' here would land the report in
+        public_html/public_html/xtide."""
+        report = self.installer_config()['StdReport']['XTideReport']
+        assert report['HTML_ROOT'] == 'xtide'
+        assert report['skin'] == 'xtide'
+        # The sample report is meant to render without being turned on.
+        assert weeutil.weeutil.to_bool(report['enable'])
+
+    def test_live_options_are_pinned_as_a_complete_set(self):
+        xtide_section = self.installer_config()['XTide']
+        # .scalars is ConfigObj's list of a section's non-section keys, so
+        # this is the complete set, not a spot check.
+        assert sorted(xtide_section.scalars) == self.LIVE_XTIDE_OPTIONS
+        assert xtide_section['data_binding'] == 'xtide_binding'
+        assert xtide_section['prog'] == '/usr/bin/tide'
+        # The binding and database the stanza also seeds, which
+        # data_binding names.
+        binding = self.installer_config()['DataBindings']['xtide_binding']
+        assert binding['database'] == 'xtide_sqlite'
+        assert binding['schema'] == 'user.xtide.schema'
+        assert (self.installer_config()['Databases']['xtide_sqlite']
+                ['database_name'] == 'xtide.sdb')
+
+    def test_location_is_a_string_not_a_list(self):
+        """location MUST stay quoted in CONFIG.  Its value has commas in
+        it, and ConfigObj reads an unquoted comma-separated value as a
+        LIST -- which weewx.conf would then carry as a list, and xtide.py
+        would hand to tide's -l as something that is not a station name.
+        The dict this stanza replaced could not hit this; the text form
+        can, silently."""
+        location = self.installer_config()['XTide']['location']
+        assert isinstance(location, str), location
+        assert location == LOC
+
+    def test_placeholders_are_marked(self):
+        """Both live values a user has to look at are deliberately not
+        answers: location names a station in California and prog names a
+        path an XTide built per the README does not use.  Three kinds of
+        line share this stanza -- a commented-out assignment (uncomment
+        only to pin it), a live setting that means what it says
+        (data_binding), and a live setting whose value is a stand-in --
+        and only the last kind breaks the extension if it is ignored,
+        while looking exactly like a working setting.  The marker leads
+        the comment rather than trailing the prose.  weewx-purple and
+        weewx-celestial mark theirs the same way."""
+        xtide_section = self.installer_config()['XTide']
+        for option in ('location', 'prog'):
+            # ConfigObj hands back the comment block attached to the key.
+            comment = ' '.join(xtide_section.comments[option])
+            assert 'PLACEHOLDER' in comment, option
+
+    def test_commented_option_matches_the_fallback_that_governs(self):
+        """The drift guard.  A commented-out option shows the user the
+        value that will actually be used, so it must equal what xtide.py
+        falls back to when the key is absent -- and once the installer
+        stops writing it live, nothing but xtide.py governs it.
+
+        WHICH SIDE MOVES WHEN THIS FAILS IS A JUDGEMENT, NOT A FORMALITY.
+        Do not make it pass by editing the assignment down to the code.
+        While the option was written live, the installer's value is what
+        every fresh install has actually been running and the fallback was
+        never reached, so editing the assignment turns the test green
+        while silently changing what new stations get.  Moving the
+        fallback is usually what preserves behavior; moving the assignment
+        is a deliberate change of default and belongs in changes.txt.
+        (This repo shipped days = 7 against a fallback of 14 for three
+        releases; the fallback is the side that moved.)"""
+        commented = dict(self.commented_options()['XTide'])
+        assert weeutil.weeutil.to_int(commented.pop('days')) == \
+            self.days_the_service_uses({'location': LOC})
+        # Anything else commented out here is a default nothing checks.
+        assert commented == {}
+
+    def test_merged_stanza_keeps_its_commented_option(self):
+        """The placement rule, checked through the real merge.  ConfigObj
+        attaches a comment block to the NEXT key, and conditional_merge
+        transfers a key's comments ONLY when it creates that key -- so a
+        commented-out option left last in [XTide] attaches to the
+        following top-level [DataBindings], which every real weewx.conf
+        already has, and is not merely re-indented but DROPPED, leaving no
+        line at all.  Hence prog last in [XTide].
+
+        The count assertion is what catches that: an indentation check
+        cannot see a block that is gone.  The indent check catches the
+        other failure, where the block survives at the wrong depth and
+        reads as an option of the wrong section."""
+        merged = configobj.ConfigObj(io.StringIO(self.TARGET_CONF),
+                                     encoding='utf-8')
+        weeutil.config.conditional_merge(merged, self.installer_config())
+        out = io.BytesIO()
+        merged.write(out)
+
+        depth = 0
+        seen = 0
+        for line in out.getvalue().decode('utf-8').splitlines():
+            header = self.SECTION_RE.match(line)
+            if header:
+                depth = len(header.group(1))
+                continue
+            option = self.COMMENTED_OPTION_RE.match(line)
+            if option:
+                seen += 1
+                assert len(option.group(1)) == 4 * depth, (
+                    'wrong indentation, so it merged outside its section: %r'
+                    % line)
+        # days, and only days.  If this ever counts zero the stanza still
+        # merges cleanly and the user simply never sees the option.
+        assert seen == 1
