@@ -97,9 +97,26 @@ Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
    [releases page](https://github.com/chaunceygardiner/weewx-xtide/releases).
 
 1. Install the xtide extension.
+
+   On a pip install `weectl` lives in the virtual environment, so
+   activate it first (yours may sit elsewhere; `~/weewx-venv` is the usual
+   place):
+
+   ```
+   source ~/weewx-venv/bin/activate
+   weectl extension install weewx-xtide.zip
+   ```
+
+   On a Debian or Red Hat package install there is no environment to
+   activate and `weectl` is already on the path:
+
    ```
    weectl extension install weewx-xtide.zip
    ```
+
+   No `sudo`: that install put your account in the `weewx` group, which
+   owns the files.  If you installed WeeWX in this same login session, log
+   out and back in first so the group membership takes effect.
 
 1. Restart WeeWX.
 

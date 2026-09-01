@@ -76,10 +76,27 @@ If that prints tide predictions, XTide is ready.
 1. Download `weewx-xtide.zip` from the latest release on the
    [releases page](https://github.com/chaunceygardiner/weewx-xtide/releases).
 
-1. Install it:
+1. Install it.
+
+   On a pip install `weectl` lives in the virtual environment, so
+   activate it first (yours may sit elsewhere; `~/weewx-venv` is the usual
+   place):
+
+   ```sh
+   source ~/weewx-venv/bin/activate
+   weectl extension install weewx-xtide.zip
+   ```
+
+   On a Debian or Red Hat package install there is no environment to
+   activate and `weectl` is already on the path:
+
    ```sh
    weectl extension install weewx-xtide.zip
    ```
+
+   No `sudo`: that install put your account in the `weewx` group, which
+   owns the files.  If you installed WeeWX in this same login session, log
+   out and back in first so the group membership takes effect.
 
 1. Set `location` and `prog` in weewx.conf — see
    [Configuration](configuration.md).
