@@ -107,7 +107,7 @@ def loader():
 class XTideInstaller(ExtensionInstaller):
     def __init__(self):
         super(XTideInstaller, self).__init__(
-            version="3.0",
+            version="3.1",
             name='xtide',
             description='Fetch Tide Forecasts.',
             author="John A Kline",
@@ -121,8 +121,7 @@ class XTideInstaller(ExtensionInstaller):
                     'skins/xtide/skin.conf',
                     'skins/xtide/xtide.css',
                     'skins/xtide/xtide.js',
-                    'skins/xtide/xtide_icons/high-tide.png',
-                    'skins/xtide/xtide_icons/low-tide.png',
+                    'skins/xtide/xtide_now.js',
                     'skins/xtide/lang/da.conf',
                     'skins/xtide/lang/de.conf',
                     'skins/xtide/lang/en.conf',

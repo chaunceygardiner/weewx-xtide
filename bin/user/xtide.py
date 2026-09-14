@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 # Copyright 2024-2026 by John A Kline <john@johnkline.com>
-# Icons by JChiaWorks
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -23,6 +22,7 @@ See the README for installation and usage.
 import configobj
 import csv
 import datetime
+import html
 import json
 import locale
 import logging
@@ -51,7 +51,7 @@ from weewx.cheetahgenerator import SearchList
 
 log = logging.getLogger(__name__)
 
-WEEWX_XTIDE_VERSION = "3.0"
+WEEWX_XTIDE_VERSION = "3.1"
 
 if sys.version_info[0] < 3:
     raise weewx.UnsupportedFeature(
@@ -310,7 +310,11 @@ class XTidePoller:
                 now: datetime.datetime = datetime.datetime.now().astimezone()
                 begin = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
                 end: int = to_int(begin + 24 * 3600 * cfg.days)
-                completed = subprocess.run([cfg.prog, '-z', '-l', cfg.location, '-b', tide_utc_arg(begin), '-e', tide_utc_arg(end), '-fc', '-m', 'p', '-s', '01:00'], capture_output=True, encoding='utf-8', timeout=10)
+                # -u x: levels in the harmonics file's own units, whatever a
+                # units preference in the WeeWX user's ~/.xtide.xml says, so
+                # the database always agrees with the harmonics.  Each row
+                # records its units; reports convert on the way out.
+                completed = subprocess.run([cfg.prog, '-z', '-u', 'x', '-l', cfg.location, '-b', tide_utc_arg(begin), '-e', tide_utc_arg(end), '-fc', '-m', 'p', '-s', '01:00'], capture_output=True, encoding='utf-8', timeout=10)
                 if completed.returncode != 0:
                     log.error("Call to tide failed: loc='%s' rc=%d %s" % (cfg.location, completed.returncode, XTidePoller.extract_tide_error(completed.stderr)))
                     return False
@@ -446,11 +450,20 @@ def use_12_hour_labels() -> bool:
         return True
 
 
+def tide_units(converter: weewx.units.Converter) -> str:
+    """tide's -u value for a report: the report's altitude unit when tide can
+    draw in it, else 'x' (the harmonics file's own units)."""
+    unit, _ = converter.getTargetUnit('altitude')
+    return {'foot': 'ft', 'meter': 'm'}.get(unit, 'x')
+
+
 class XTideGraph:
     """Everything the sample skin's graph page needs; built by XTideGraphBuilder."""
-    def __init__(self, location: str, unit: str, svgs: Dict[str, str], payload: str, events: List[Dict[str, Any]]):
+    def __init__(self, location: str, unit: str, svgs: Dict[str, str], payload: str, events: List[Dict[str, Any]],
+                 credit: str = ''):
         self.location  = location
         self.unit      = unit         # 'ft' or 'm'
+        self.credit    = credit       # where the station's data come from, markup-escaped; may be ''
         self.svg_day   = svgs['day']
         self.svg_week  = svgs['week']
         self.svg_month = svgs['month']
@@ -481,9 +494,16 @@ class XTideGraphBuilder:
         ('month', 30, 3600),
     ]
 
-    def __init__(self, prog: str, location: str, texts: Optional[Dict[str, Any]] = None):
+    def __init__(self, prog: str, location: str, texts: Optional[Dict[str, Any]] = None,
+                 units: str = 'x'):
         self.prog = prog
         self.location = location
+        # tide's -u: 'ft' or 'm' to draw in the report's units, 'x' for the
+        # harmonics file's own.  Always passed, so a units preference in
+        # ~/.xtide.xml cannot change what is drawn -- and so the raw-mode
+        # curve, whose lines carry no unit, is in the same units as the
+        # plain-mode events the unit is read from.
+        self.units = units
         # The report's [Texts] section (skin_dict with the lang file merged
         # in), for the strings this builder composes server-side.
         self.texts: Dict[str, Any] = texts if texts is not None else {}
@@ -562,6 +582,8 @@ class XTideGraphBuilder:
                     'High Tide': self._raw('High Tide'),
                     'Low Tide': self._raw('Low Tide'),
                     '{n} tidal events.': self._raw('{n} tidal events.'),
+                    'Rising': self._raw('Rising'),
+                    'Falling': self._raw('Falling'),
                 },
             }
             unit_long = self._t('feet') if unit == 'ft' else self._t('meters')
@@ -575,11 +597,12 @@ class XTideGraphBuilder:
                 events_display.append({
                     'ts'       : ts,
                     'eventType': self._t('High Tide') if high else self._t('Low Tide'),
-                    'icon'     : 'high-tide.png' if high else 'low-tide.png',
+                    'high'     : high,
                     'level_str': '%.2f %s' % (level, unit_long),
                     'time_str' : datetime.datetime.fromtimestamp(ts).astimezone().strftime(time_fmt),
                 })
-            return XTideGraph(self.location, unit, svgs, json.dumps(payload, separators=(',', ':')), events_display)
+            return XTideGraph(self.location, unit, svgs, json.dumps(payload, separators=(',', ':')), events_display,
+                              html.escape(self.get_credit()))
         except Exception as e:
             log.error('XTideGraphBuilder.build: %s (%s)' % (e, type(e)))
             weeutil.logger.log_traceback(log.error, "    ****  ")
@@ -587,7 +610,7 @@ class XTideGraphBuilder:
 
     def run_tide(self, mode: str, begin: float, end: float, step: str) -> Optional[str]:
         try:
-            completed = subprocess.run([self.prog, '-z', '-l', self.location, '-b', tide_utc_arg(begin), '-e', tide_utc_arg(end), '-fc', '-m', mode, '-s', step], capture_output=True, encoding='utf-8', timeout=10)
+            completed = subprocess.run([self.prog, '-z', '-u', self.units, '-l', self.location, '-b', tide_utc_arg(begin), '-e', tide_utc_arg(end), '-fc', '-m', mode, '-s', step], capture_output=True, encoding='utf-8', timeout=10)
         except FileNotFoundError:
             log.error('%s not found' % self.prog)
             return None
@@ -598,6 +621,31 @@ class XTideGraphBuilder:
             log.error("Call to tide failed: loc='%s' rc=%d %s" % (self.location, completed.returncode, XTidePoller.extract_tide_error(completed.stderr)))
             return None
         return completed.stdout
+
+    def get_credit(self) -> str:
+        """Where the station's harmonic data come from, per tide's about
+        mode: its Credit line, else its Source line, else ''.  Flater's
+        free file carries Credit ("NOAA data processed by David Flater for
+        XTide"); openwatersio's files carry only Source ("TICON-4"), and
+        TICON-4's license asks for attribution.  A failure here costs the
+        page its credit line, never the graph."""
+        try:
+            completed = subprocess.run([self.prog, '-l', self.location, '-m', 'a'],
+                                       capture_output=True, encoding='utf-8', timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            # OSError, not just FileNotFoundError: a permission error or any
+            # other failure to start tide must cost only the credit line.
+            return ''
+        if completed.returncode != 0:
+            return ''
+        # "Credit              NOAA data processed by David Flater for XTide"
+        # "                    https://flaterco.com/xtide/"   (continuation: skipped)
+        fields: Dict[str, str] = {}
+        for line in completed.stdout.splitlines():
+            m = re.match(r'(\S.*?)\s{2,}(\S.*)$', line)
+            if m and m.group(1) not in fields:
+                fields[m.group(1)] = m.group(2).strip()
+        return fields.get('Credit') or fields.get('Source') or ''
 
     def get_samples(self, begin: float, end: float, step_secs: int) -> Optional[Tuple[int, int, List[float]]]:
         """Continuous levels from raw mode: (first timestamp, step, values)."""
@@ -726,8 +774,20 @@ class XTideGraphBuilder:
                     time_lbl = time_lbl.lstrip('0')
                 label = '%.2f %s · %s' % (level, unit, time_lbl)
                 lx = min(max(px, self.ML + 60), self.W - self.MR - 60)
-                ly = max(py - 12, self.MT + 12) if high else min(py + 20, self.MT + ph - 6)
-                s.append('<text class="xg-lab xg-evlab" x="%.1f" y="%.1f">%s</text>' % (lx, ly, label))
+                # Above a high and below a low -- unless there is no room
+                # there, in which case the label goes on the other side.
+                # Clamping it inside the plot instead drew it over its own
+                # marker whenever an extreme sat near the frame.
+                if high:
+                    ly = py - 12 if py - 12 >= self.MT + 12 else py + 20
+                else:
+                    ly = py + 20 if py + 20 <= self.MT + ph - 6 else py - 12
+                # paint-order as an attribute, not in the stylesheet: the Nu
+                # checker's CSS validator does not know the property and
+                # fails xtide.css on it, while the SVG attribute validates.
+                # It changes nothing until a skin gives the label a stroke
+                # (the sample skin's halo).
+                s.append('<text class="xg-lab xg-evlab" x="%.1f" y="%.1f" paint-order="stroke">%s</text>' % (lx, ly, label))
         # Unit reminder, frame, and the javascript-positioned "now" marker
         s.append('<text class="xg-lab xg-unitlab" x="%d" y="%d">%s</text>' % (self.ML + 8, self.MT + 16, self._t('Tide ({unit})', unit=unit)))
         s.append('<rect class="xg-frame" x="%d" y="%d" width="%d" height="%d"/>' % (self.ML, self.MT, pw, ph))
@@ -775,7 +835,13 @@ class XTideVariables(SearchList):
         self.time_group = weewx.units.obs_group_dict['dateTime']
         self.altitude_group = weewx.units.obs_group_dict['altitude']
         self.level_unit_format_dict= {'foot': '%0.2f', 'meter': '%0.2f'}
-        self.level_unit_label_dict = {'foot': ' feet', 'meter': ' meters'}
+        # The unit names in the report's own language when its lang file
+        # translates them (the sample skin's does), English otherwise.
+        texts = generator.skin_dict.get('Texts', {})
+        def label(key: str) -> str:
+            val = texts.get(key, key)
+            return ' ' + (val if isinstance(val, str) else key)
+        self.level_unit_label_dict = {'foot': label('feet'), 'meter': label('meters')}
 
         self._graph: Optional[XTideGraph] = None
         self._graph_built = False
@@ -798,7 +864,8 @@ class XTideVariables(SearchList):
                 # over skin.conf by WeeWX; the builder translates the
                 # strings it composes server-side.
                 texts = self.generator.skin_dict.get('Texts', {})
-                self._graph = XTideGraphBuilder(prog, location, texts).build()
+                self._graph = XTideGraphBuilder(prog, location, texts,
+                                                tide_units(self.generator.converter)).build()
         return self._graph
 
     def events(self, max_events: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -807,12 +874,17 @@ class XTideVariables(SearchList):
         rows = self.getEventRows(max_events)
         for row in rows:
             time_units = weewx.units.std_groups[row['usUnits']][self.time_group]
-            row['dateTime'] = weewx.units.ValueHelper((row['dateTime'], time_units, self.time_group))
+            # The report's converter and formatter: without them a ValueHelper
+            # converts nothing (a level showed in the harmonics' units, never
+            # the report's) and formats times with WeeWX's built-in default.
+            row['dateTime'] = weewx.units.ValueHelper((row['dateTime'], time_units, self.time_group),
+                formatter=self.formatter, converter=self.converter)
             row['location']  = row['location']
             row['eventType']  = 'High Tide' if row['eventType'] == EventType.HIGH_TIDE else 'Low Tide'
             altitude_units = weewx.units.std_groups[row['usUnits']][self.altitude_group]
             row['level'] = weewx.units.ValueHelper((row['level'], altitude_units, self.altitude_group),
-                formatter=weewx.units.Formatter(unit_format_dict=self.level_unit_format_dict, unit_label_dict=self.level_unit_label_dict))
+                formatter=weewx.units.Formatter(unit_format_dict=self.level_unit_format_dict, unit_label_dict=self.level_unit_label_dict),
+                converter=self.converter)
         return rows
 
     def getEventRows(self,  max_events: Optional[int] = None) -> List[Dict[str, Any]]:

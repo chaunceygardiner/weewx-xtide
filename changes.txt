@@ -1,5 +1,51 @@
-3.0.1 (in progress)
--------------------
+3.1 09/14/2026
+--------------
+The tide icons are gone, and with them the icon key of $xtide.graph()'s
+    event rows; use the new high key, which is true for a high tide.  A
+    skin of your own that used $ev.icon needs that change.  An upgrade
+    leaves the old xtide_icons directories in place, unused; delete them
+    if you like.
+The sample report is redesigned, after the tides page of
+    PaloAltoWeather.com: a Right now card (the current level, rising or
+    falling, and the next tide with a countdown), the tide graph, and a
+    tide table that says how long until each tide.  The clock-driven
+    parts stay current in the browser without a reload.  The page
+    follows the reader's light or dark system setting, and it is the
+    first to have a phone layout: the graph's labels are sized for a
+    small screen instead of shrinking with it, the Right now card
+    stacks, and the tide table drops to three columns.  All nine
+    languages carry the new strings.
+Both the light and the dark page now clear the stricter of two contrast
+    measures, WCAG 2 and APCA, for every piece of text on every ground it
+    lands on, including the graph's labels on its night shading.  Several
+    dark-mode colors are brighter as a result, and tides already past are
+    shown in a muted color in the table rather than faded out.
+The translations are no longer marked Beta.  Corrections to any of them
+    are welcome as GitHub issues.
+The page's credit line now names the harmonics data actually installed,
+    as the harmonics file credits them, rather than always crediting
+    U.S.A. harmonics, and says NOT FOR NAVIGATION.  $xtide.graph()
+    offers it as $g.credit.
+Fix: on the graph's 2-day view, a high or low tide close to the top or
+    bottom of the graph had its label drawn over its own marker.  The
+    label now moves to the other side, and every event label has a halo
+    so it stays legible where it crosses the curve.
+The installation instructions now cover stations outside the US, with
+    harmonics files from openwatersio/tide-database, and build libtcd
+    2.2.7-r3.
+Fix: tide levels now follow the report's units.  $xtide.events() never
+    converted anything: a level showed in the units of the harmonics
+    file, whatever the report's unit system said, and $event.dateTime
+    ignored the report's time formats.  Both now use the report's own
+    settings, and the feet/meters label is translated when the
+    report's language file carries those words.  The sample report's
+    graph is now drawn in the report's altitude unit as well.  A
+    station whose harmonics and reports already agree sees no change.
+Fix: a units preference saved in the WeeWX user's ~/.xtide.xml
+    silently changed the units the tide program reported.  The
+    extension now always tells tide which units to use, so the events
+    database holds the harmonics file's own units whatever that file
+    says.
 The installer now writes a commented [XTide] section into weewx.conf.
     Every option carries a sentence saying what it does, and location
     and prog -- the two that must be edited -- are marked PLACEHOLDER.

@@ -4,61 +4,142 @@
 ## missing [Texts] entry falls back to it); the report's lang file translates
 ## them.  Keys are single-line literals: the test suite reads them from this
 ## file to enforce that lang/en.conf ships exactly the keys that render.
+##
+## Three cards on a page -- Right now, the graph, the tide table -- after
+## weewx-liveseasons' tides page, whose class names these are, so the two
+## stay one design.  The graph's tabs, tooltip and now line are xtide.js's
+## (its hooks: .xg-tab[data-view], #xg-wrap-<view>, #xg-tip-<view>,
+## .xg-evrow[data-ts], #xg-count, xg-hidden and xg-active).  The Right now
+## card, the countdowns and the dimmed past rows are xtide_now.js's, whose
+## hooks are listed at the top of that file.  Anything that depends on the
+## time of day is written here for the first paint only and kept current in
+## the browser after.
 #errorCatcher Echo
 #encoding UTF-8
+#import time
 #set $g = $xtide.graph()
+#set $now = time.time()
 <!DOCTYPE html>
 <html lang="$lang">
   <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
     <title>$gettext("Tidal Events")</title>
     <meta name="description" content='$gettext("Tide forecasts.")'>
     <link rel="stylesheet" href="xtide.css">
   </head>
   <body>
-    <div class="xg-page">
+    <div class="fc">
+      <div class="fcwrap">
+        <div class="chead">
+          <h1>$gettext("Tidal Events")</h1>
 #if $g
-      <div class="xg-title">$g.location</div>
-      <div class="xg-tabs">
-        <button type="button" class="xg-tab xg-active" data-view="day">$gettext("2 Days")</button>
-        <button type="button" class="xg-tab" data-view="week">$gettext("7 Days")</button>
-        <button type="button" class="xg-tab" data-view="month">$gettext("30 Days")</button>
-      </div>
-      <div class="xg-wrap" id="xg-wrap-day">
-        $g.svg_day
-        <div class="xg-tooltip" id="xg-tip-day"></div>
-      </div>
-      <div class="xg-wrap xg-hidden" id="xg-wrap-week">
-        $g.svg_week
-        <div class="xg-tooltip" id="xg-tip-week"></div>
-      </div>
-      <div class="xg-wrap xg-hidden" id="xg-wrap-month">
-        $g.svg_month
-        <div class="xg-tooltip" id="xg-tip-month"></div>
-      </div>
-      <table class="xg-events">
-#for $ev in $g.events
-        <tr class="xg-evrow" data-ts="$ev.ts">
-          <td class="xg-evicon"><img src="xtide_icons/$ev.icon" alt="$ev.eventType"></td>
-          <td class="xg-evlevel">$ev.level_str</td>
-          <td class="xg-evtype">$ev.eventType</td>
-          <td class="xg-evtime">$ev.time_str</td>
-        </tr>
-#end for
-      </table>
-      <div class="xg-count" id="xg-count"></div>
-      <div class="xg-credits">
-        <div>XTide 2 Copyright &copy; 1998 David Flater</div>
-        <div>U.S.A. Harmonics from National Ocean Service</div>
-        <div>Icons by <a href="https://www.jchiaworks.com/">JChiaWorks</a></div>
-      </div>
-      <script>var XTIDE_DATA = $g.json;</script>
-      <script src="xtide.js"></script>
-#else
-      <div class="xg-title">$gettext("Tidal Events")</div>
-      <p class="xg-empty">$gettext("No tidal data to display.  Check the system log, and verify that the tide program runs as the WeeWX user and that the location in weewx.conf is valid.")</p>
+          <div class="sub">$g.location</div>
 #end if
+        </div>
+#if $g
+## The first tide still ahead, for the first paint; xtide_now.js re-picks it
+## from the table's own rows every minute.
+#set $nts = ''
+#set $nkind = ''
+#set $nlevel = ''
+#set $ntime = ''
+#for $ev in $g.events
+#if $nts == '' and $ev.ts > $now
+#set $nts = $ev.ts
+#set $nkind = $ev.eventType
+#set $nlevel = $ev.level_str
+#set $ntime = $ev.time_str
+#end if
+#end for
+        <section class="tnow">
+          <h2 class="eyebrow">$gettext("Right now")</h2>
+          <div class="tnowgrid" id="xt-now">
+            <div class="tstate">
+              <div class="tnowlab">$gettext("Now")</div>
+              <div class="tnowbig"><span class="tnowbig-v">&mdash;</span><span class="tunit"> $g.unit</span></div>
+              <div class="tdir" hidden><svg class="tarrow" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3 L10 17 M4 9 L10 3 L16 9"/></svg><span class="tdir-t"></span></div>
+            </div>
+#if $nts == ''
+            <div class="tnext" hidden>
+#else
+            <div class="tnext">
+#end if
+              <div class="tnextlab">$gettext("Next") &mdash; <span class="tnext-k">$nkind</span></div>
+              <div class="tnextbig tnext-l">$nlevel</div>
+              <div class="tnextsub"><span class="tnext-t">$ntime</span> &middot; <span class="rel" data-ts="$nts"></span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="tgraph">
+          <h2 class="eyebrow">$gettext("Tide graph")</h2>
+          <div class="daytabs">
+            <button type="button" class="xg-tab daytab xg-active" data-view="day"><span class="dt1">$gettext("2 Days")</span><span class="dt2">$gettext("today and tomorrow")</span></button>
+            <button type="button" class="xg-tab daytab" data-view="week"><span class="dt1">$gettext("7 Days")</span><span class="dt2">$gettext("from today")</span></button>
+            <button type="button" class="xg-tab daytab" data-view="month"><span class="dt1">$gettext("30 Days")</span><span class="dt2">$gettext("from today")</span></button>
+          </div>
+          <div class="xg-area">
+            <div class="xg-wrap" id="xg-wrap-day">
+              $g.svg_day
+              <div class="xg-tooltip" id="xg-tip-day"></div>
+            </div>
+            <div class="xg-wrap xg-hidden" id="xg-wrap-week">
+              $g.svg_week
+              <div class="xg-tooltip" id="xg-tip-week"></div>
+            </div>
+            <div class="xg-wrap xg-hidden" id="xg-wrap-month">
+              $g.svg_month
+              <div class="xg-tooltip" id="xg-tip-month"></div>
+            </div>
+          </div>
+          <p class="caption">$gettext("Point at the curve, or tap it, to read the level at any moment.  The dashed red line is now.")</p>
+        </section>
+
+        <section class="tevents">
+          <h2 class="eyebrow">$gettext("Tide table")</h2>
+          <div class="evhead"><div>$gettext("Tide")</div><div>$gettext("Height")</div><div>$gettext("Time")</div><div>$gettext("When")</div></div>
+#for $ev in $g.events
+#if $ev.high
+#set $kind_class = 'ev-k ev-hi'
+#else
+#set $kind_class = 'ev-k ev-lo'
+#end if
+#if $ev.ts <= $now
+#set $row_class = 'xg-evrow past'
+#else
+#set $row_class = 'xg-evrow'
+#end if
+          <div class="$row_class" data-ts="$ev.ts">
+            <div class="$kind_class">$ev.eventType</div>
+            <div class="ev-l">$ev.level_str</div>
+            <div class="ev-t">$ev.time_str</div>
+            <div class="ev-w rel" data-ts="$ev.ts"></div>
+          </div>
+#end for
+          <p class="caption"><span id="xg-count"></span>  $gettext("Heights are above the station's chart datum.  The list follows the tab above.")</p>
+        </section>
+
+        <div class="cfoot">
+          XTide 2 Copyright &copy; 1998 David Flater
+#if $g.credit
+          &middot; $gettext("Harmonics data:") $g.credit
+#end if
+          &middot; <strong>$gettext("NOT FOR NAVIGATION")</strong>
+        </div>
+#else
+        <section>
+          <h2 class="eyebrow">$gettext("Right now")</h2>
+          <p class="empty">$gettext("No tidal data to display.  Check the system log, and verify that the tide program runs as the WeeWX user and that the location in weewx.conf is valid.")</p>
+        </section>
+#end if
+      </div>
     </div>
+#if $g
+    <script>var XTIDE_DATA = $g.json;</script>
+    <script src="xtide.js"></script>
+    <script src="xtide_now.js"></script>
+#end if
   </body>
 </html>

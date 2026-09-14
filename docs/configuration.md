@@ -37,7 +37,7 @@ same goes for an upgrade — it leaves the section you already have alone.
 
 | Option | What it does |
 |---|---|
-| `location` | The tide station, matched by XTide's own prefix rules.  Stations are listed at [flaterco.com's locations page](https://flaterco.com/xtide/locations.html).  Any station works, in any timezone — all times are handled in UTC internally and displayed in the server's local time.  Keep the quotation marks: a name containing commas is read as a list without them. |
+| `location` | The tide station, matched by XTide's own prefix rules.  Stations are listed at [flaterco.com's locations page](https://flaterco.com/xtide/locations.html), or, for whatever harmonics file is installed (see [Stations outside the US](installation.md#stations-outside-the-us)), by `tide -m l`.  Any station works, in any timezone — all times are handled in UTC internally and displayed in the server's local time.  Keep the quotation marks: a name containing commas is read as a list without them. |
 | `prog` | Where the `tide` program is.  The default is `/usr/bin/tide` for legacy reasons; an XTide built per [Installation](installation.md) lands at `/usr/local/bin/tide`, so set this. |
 | `days` | How many days of tidal events to keep in the database for `$xtide.events()` (default 7).  The sample report's graph is not affected: it always shows 30 days. |
 | `data_binding` | The WeeWX data binding (default `xtide_binding`, seeded by the installer along with its database, `xtide.sdb`). |
@@ -45,6 +45,16 @@ same goes for an upgrade — it leaves the section you already have alone.
 Tide predictions are deterministic, so the extension fetches once at
 startup and then once per local midnight; events are written to the
 database at the end of an archive period, and only when they changed.
+
+## Units
+
+There is no units option.  The database stores levels in the harmonics
+file's own units, feet or meters, and every report shows them in its own
+altitude unit: `unit_system`, or `group_altitude = foot` or `meter` under
+the report's `[[[Units]]]`, exactly as for the rest of WeeWX.  That holds
+for `$xtide.events()` and for the sample report's graph alike.  A units
+preference saved in XTide's own `~/.xtide.xml` is overridden and has no
+effect on either.
 
 ## The sample report
 

@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.join(REPO, 'bin', 'user'))
 
 import weewx  # noqa: E402
 import weewx.manager  # noqa: E402
+import weewx.units  # noqa: E402
 import weeutil.config  # noqa: E402
 import xtide  # noqa: E402
 
@@ -72,14 +73,28 @@ Could not find: Atlantis, Lost City
 '''
 
 # A fake tide that computes a sinusoidal curve for raw mode and synthesized
-# events for plain mode, honoring -b/-e/-s/-m.  The extension runs tide with
+# events for plain mode, honoring -b/-e/-s/-m/-u.  The extension runs tide with
 # -z and bare UTC 'YYYY-MM-DD HH:MM' window arguments (tide_utc_arg), so the
 # simulator requires -z, parses the window as UTC, and stamps events in UTC.
+#
+# Its harmonics are in feet, but like the real tide under a ~/.xtide.xml
+# units preference it answers in METERS unless -u says otherwise -- so every
+# graph test fails if either the raw or the plain run loses its -u.
 SIMULATOR = '''import datetime, math, sys
 args = sys.argv[1:]
+if '-m' in args and args[args.index('-m') + 1] == 'a':
+    # About mode, for the page's credit line; the ampersand proves escaping.
+    print('Name                Simulated Harbor')
+    print('Credit              Simulated harmonics & tests')
+    print('                    https://example.invalid/')
+    sys.exit(0)
 assert '-z' in args, 'tide must be run with -z (UTC): %%r' %% args
 def get(flag):
     return args[args.index(flag) + 1]
+units = get('-u') if '-u' in args else 'm'
+assert units in ('x', 'ft', 'm'), 'bad -u %%r' %% units
+units = 'ft' if units == 'x' else units
+scale = 1.0 if units == 'ft' else 0.3048
 def when(flag):
     return int(datetime.datetime.strptime(get(flag), '%%Y-%%m-%%d %%H:%%M')
                .replace(tzinfo=datetime.timezone.utc).timestamp())
@@ -89,7 +104,7 @@ hh, mm = get('-s').split(':')
 step = int(hh) * 3600 + int(mm) * 60
 LOC = %r
 def level(t):
-    return 4.0 + 4.0 * math.sin(2 * math.pi * t / (12.42 * 3600))
+    return scale * (4.0 + 4.0 * math.sin(2 * math.pi * t / (12.42 * 3600)))
 def stamp(t):
     dt = datetime.datetime.fromtimestamp(t, datetime.timezone.utc)
     return '%%s,%%s' %% (dt.strftime('%%Y-%%m-%%d'), dt.strftime('%%I:%%M %%p %%Z'))
@@ -104,7 +119,7 @@ else:
     high = True
     while t < end:
         kind = 'High Tide' if high else 'Low Tide'
-        print('"%%s",%%s,%%.2f ft,"%%s"' %% (LOC, stamp(t), level(t), kind))
+        print('"%%s",%%s,%%.2f %%s,"%%s"' %% (LOC, stamp(t), level(t), units, kind))
         high = not high
         t += 22356  # ~6h13m between extremes
     day = begin
@@ -166,6 +181,103 @@ class TestEventParser:
         assert cfg.events[0].usUnits == weewx.METRIC
         assert cfg.events[0].level == 2.59
 
+    def test_fetch_asks_for_the_harmonics_units(self, make_tide, tmp_path):
+        # -u x on the database fetch, so a ~/.xtide.xml units preference
+        # cannot put the database in anything but the harmonics' own units.
+        argv = tmp_path / 'argv.json'
+        prog = make_tide('import json, sys\n'
+                         'json.dump(sys.argv[1:], open(%r, "w"))\n'
+                         'sys.stdout.write(%r)\n' % (str(argv), V216_OUTPUT))
+        assert xtide.XTidePoller.populate_tidal_events(make_cfg(prog))
+        args = json.loads(argv.read_text())
+        assert args[args.index('-u') + 1] == 'x'
+
+
+class TestUnits:
+    """Levels are stored in the harmonics file's units and shown in the
+    report's.  $xtide.events() once passed no converter to its
+    ValueHelpers, which then converted nothing, and no formatter for
+    dateTime, which then ignored the report's time formats."""
+
+    @staticmethod
+    def converter(altitude):
+        groups = dict(weewx.units.USUnits)
+        if altitude is not None:
+            groups['group_altitude'] = altitude
+        return weewx.units.Converter(groups)
+
+    @staticmethod
+    def variables(converter, texts=None, formatter=None, rows=None, prog=None):
+        """A real XTideVariables over a stub generator; the database read
+        is replaced by rows."""
+        generator = mock.Mock()
+        generator.converter = converter
+        generator.formatter = formatter or weewx.units.Formatter()
+        generator.skin_dict = {'Texts': texts or {}}
+        generator.config_dict = {'XTide': {'location': LOC, 'prog': prog or 'tide'}}
+        variables = xtide.XTideVariables(generator)
+        variables.getEventRows = lambda max_events=None: [dict(r) for r in rows or []]
+        return variables
+
+    ROWS = [
+        {'dateTime': 1789371000, 'usUnits': weewx.METRIC, 'location': LOC,
+         'eventType': xtide.EventType.HIGH_TIDE, 'level': 2.01},
+        {'dateTime': 1789393000, 'usUnits': weewx.US, 'location': LOC,
+         'eventType': xtide.EventType.LOW_TIDE, 'level': 6.59},
+    ]
+
+    def test_tide_units_follow_the_report(self):
+        assert xtide.tide_units(self.converter('foot')) == 'ft'
+        assert xtide.tide_units(self.converter('meter')) == 'm'
+        assert xtide.tide_units(weewx.units.Converter(weewx.units.MetricUnits)) == 'm'
+        assert xtide.tide_units(weewx.units.Converter(weewx.units.MetricWXUnits)) == 'm'
+        # An altitude unit tide cannot draw in: the harmonics' own units.
+        assert xtide.tide_units(self.converter('mile')) == 'x'
+
+    def test_events_convert_to_the_report_units(self):
+        feet = self.variables(self.converter('foot'), rows=self.ROWS).events()
+        assert str(feet[0]['level']) == '6.59 feet'     # stored in meters
+        assert str(feet[1]['level']) == '6.59 feet'
+        meters = self.variables(self.converter('meter'), rows=self.ROWS).events()
+        assert str(meters[0]['level']) == '2.01 meters'
+        assert str(meters[1]['level']) == '2.01 meters'  # stored in feet
+
+    def test_events_use_the_report_time_format(self):
+        formatter = weewx.units.Formatter(time_format_dict={'current': 'at %H:%M'})
+        events = self.variables(self.converter('foot'), formatter=formatter,
+                                rows=self.ROWS).events()
+        expected = datetime.datetime.fromtimestamp(self.ROWS[0]['dateTime']).strftime('at %H:%M')
+        assert str(events[0]['dateTime']) == expected
+
+    def test_events_unit_label_is_translated(self):
+        de = lang_texts('de')
+        events = self.variables(self.converter('foot'), texts=de, rows=self.ROWS).events()
+        assert str(events[0]['level']) == '6.59 Fuß'
+        events = self.variables(self.converter('meter'), texts=de, rows=self.ROWS).events()
+        assert str(events[0]['level']) == '2.01 Meter'
+
+    @pytest.mark.parametrize('units, unit, long_form, peak', [
+        ('ft', 'ft', ' feet', 8.0), ('m', 'm', ' meters', 8.0 * 0.3048), ('x', 'ft', ' feet', 8.0)])
+    def test_graph_draws_in_the_units_asked_for(self, make_tide, units, unit, long_form, peak):
+        # SIMULATOR answers in meters unless -u says otherwise, so the curve
+        # (raw mode) and the events (plain mode) both prove -u reached them.
+        g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC, units=units).build()
+        assert g is not None
+        assert g.unit == unit
+        payload = json.loads(g.json)
+        assert payload['unit'] == unit
+        assert max(payload['views']['day']['samples']) == pytest.approx(peak, abs=0.05)
+        # The events' label proves -u reached plain mode: without it they
+        # come back in meters.
+        assert all(ev['level_str'].endswith(long_form) for ev in g.events)
+
+    def test_graph_tag_passes_the_report_units(self, make_tide):
+        prog = make_tide(SIMULATOR)
+        g = self.variables(self.converter('meter'), prog=prog).graph()
+        assert g is not None and g.unit == 'm'
+        g = self.variables(self.converter('foot'), prog=prog).graph()
+        assert g is not None and g.unit == 'ft'
+
 
 class TestTideFailures:
     def test_nonzero_exit_logs_tide_error(self, make_tide, caplog):
@@ -224,7 +336,8 @@ class TestGraphBuilder:
         assert len(payload['events']) == len(graph.events)
         first = graph.events[0]
         assert first['eventType'] in ('High Tide', 'Low Tide')
-        assert first['icon'] in ('high-tide.png', 'low-tide.png')
+        assert first['high'] is (first['eventType'] == 'High Tide')
+        assert 'icon' not in first     # the icons were retired in 3.1
         assert first['level_str'].endswith(' feet')
 
     def test_svgs_have_expected_parts(self, graph):
@@ -233,10 +346,38 @@ class TestGraphBuilder:
                 assert cls in svg, 'missing %s' % cls
         assert 'xg-evlab' in graph.svg_day        # labels on the day view only
         assert 'xg-evlab' not in graph.svg_month
+        # The halo paints its stroke under the glyphs only with this
+        # attribute; xtide.css cannot say it (the Nu CSS checker rejects it).
+        labels = re.findall(r'<text class="xg-lab xg-evlab"[^>]*>', graph.svg_day)
+        assert labels and all('paint-order="stroke"' in t for t in labels)
+        assert 'paint-order' not in re.sub(r'/\*.*?\*/', '', open(CSS_PATH).read(), flags=re.S)
 
     def test_build_fails_gracefully(self, make_tide):
         prog = make_tide(canned(stderr=STATION_NOT_FOUND_STDERR, rc=0))
         assert xtide.XTideGraphBuilder(prog, LOC).build() is None
+
+    def test_credit_comes_from_about_mode_escaped(self, graph):
+        # The Credit line, not its continuation line, and markup-escaped.
+        assert graph.credit == 'Simulated harmonics &amp; tests'
+
+    def test_credit_falls_back_to_source(self, make_tide):
+        # openwatersio's files carry Source and no Credit.
+        about = ('Name                Brest, Brittany, France\n'
+                 'Source              TICON-4\n'
+                 'Restriction         Public Domain\n')
+        builder = xtide.XTideGraphBuilder(make_tide(canned(about)), LOC)
+        assert builder.get_credit() == 'TICON-4'
+
+    def test_a_failed_credit_costs_only_the_credit(self, make_tide, tmp_path):
+        builder = xtide.XTideGraphBuilder(make_tide(canned(stderr='XTide Fatal Error: X\n', rc=1)), LOC)
+        assert builder.get_credit() == ''
+        assert xtide.XTideGraphBuilder('/nonexistent/tide', LOC).get_credit() == ''
+        # A program that exists but cannot be run raises PermissionError, an
+        # OSError that is not FileNotFoundError; it must not escape either.
+        unrunnable = tmp_path / 'tide-not-executable'
+        unrunnable.write_text('#!/bin/sh\n')
+        unrunnable.chmod(0o644)
+        assert xtide.XTideGraphBuilder(str(unrunnable), LOC).get_credit() == ''
 
     def test_night_intervals(self):
         night = xtide.XTideGraphBuilder.night_intervals
@@ -255,6 +396,30 @@ class TestGraphBuilder:
         assert choose(7.0) == 1.0
         assert choose(12.0) == 2.0
         assert choose(35.0) == 5.0
+
+    def test_event_labels_never_cover_their_markers(self):
+        """An extreme near the frame used to have its label clamped inside
+        the plot, on top of its own marker (a 7.88 ft high on a 0 to 8
+        scale).  Levels of 7.9 and 0.1 put a high 4 px under the top edge
+        and a low 4 px over the bottom one.  Each label's text box, taken
+        as baseline - 9 to baseline + 2 for 11 px type, must clear its
+        marker and stay inside the plot."""
+        builder = xtide.XTideGraphBuilder('tide', LOC)
+        t0 = int(datetime.datetime(2026, 9, 14).timestamp())
+        values = [0.1, 7.9] * 240                          # 2 days at 6 minutes
+        tides = [(t0 + 3600, 7.9, 1), (t0 + 7200, 0.1, 2),   # at the frame
+                 (t0 + 40000, 4.0, 1), (t0 + 60000, 4.0, 2)]  # mid-plot
+        svg, _, _ = builder.build_view_svg('day', t0, t0 + 2 * 86400, 360, values, tides, [], 'ft')
+        pairs = re.findall(r'<circle class="xg-(?:hi|lo)" cx="[\d.]+" cy="([\d.]+)" r="([\d.]+)"/>'
+                           r'<text class="xg-lab xg-evlab" x="[\d.]+" y="([\d.]+)"[^>]*>', svg)
+        assert len(pairs) == 4
+        top_edge = builder.MT
+        bottom_edge = builder.H - builder.MB
+        for cy, r, ly in ((float(a), float(b), float(c)) for a, b, c in pairs):
+            text_top, text_bottom = ly - 9, ly + 2
+            assert text_bottom < cy - r or text_top > cy + r, \
+                'label at y=%.1f covers its marker at y=%.1f' % (ly, cy)
+            assert top_edge <= text_top and text_bottom <= bottom_edge
 
 
 class TestLocaleRobustness:
@@ -346,9 +511,20 @@ class TestSampleTemplate:
         html = self.render(g)
         assert LOC in html
         assert 'id="xg-wrap-day"' in html
+        assert 'id="xt-now"' in html
         assert 'var XTIDE_DATA = {' in html
-        assert html.count('class="xg-evrow"') == len(g.events)
+        assert '<script src="xtide.js"></script>' in html
+        assert '<script src="xtide_now.js"></script>' in html
+        # Rows before the render are pre-dimmed; either way one row per event.
+        assert len(re.findall(r'<div class="xg-evrow(?: past)?" data-ts="\d+">', html)) == len(g.events)
+        assert html.count('class="ev-k ev-hi"') + html.count('class="ev-k ev-lo"') == len(g.events)
+        assert 'Simulated harmonics &amp; tests' in html
+        assert 'xtide_icons' not in html
+        # The first paint names the next tide: the first event after now.
+        nxt = next(ev for ev in g.events if ev['ts'] > time.time())
+        assert '<span class="rel" data-ts="%d">' % nxt['ts'] in html
         assert '$g' not in html  # no un-substituted placeholders (errorCatcher Echo)
+        assert '$n' not in html
 
     def test_renders_failure_page(self):
         html = self.render(None)
@@ -360,6 +536,164 @@ class TestSampleTemplate:
         # Cheetah owns '#': colors belong in xtide.css, never in the template.
         text = open(os.path.join(REPO, 'skins', 'xtide', 'index.html.tmpl')).read()
         assert not re.search(r'#[0-9a-fA-F]{6}', text)
+
+
+# ---- the stylesheet's two palettes -------------------------------------
+#
+# Every rule runs over BOTH palettes, and light must pass unchanged: a rule
+# only the new dark values satisfy has been fitted to them.  (weewx-nws's
+# tests/test_nws_css.py is the pattern.)  GROUNDS pairs each token with the
+# grounds it can reach, read from the RULES in xtide.css, and what it is
+# there: text or a graphical mark.  A rule that puts a token on a new ground
+# must be added here, or this cannot see it.
+#
+# THE BAR IS THE STRICTER OF TWO MEASURES (John, 2026-09-14: the standard
+# weewx-liveseasons uses).  The WCAG 2 ratio is known to overrate some
+# pairs -- it passed this stylesheet's first dark palette, whose muted gray
+# APCA scores Lc 49 -- so text must clear WCAG 4.5 AND APCA Lc 60, large
+# text included, and marks WCAG 3.0 AND Lc 30.
+
+CSS_PATH = os.path.join(REPO, 'skins', 'xtide', 'xtide.css')
+
+BARS = {'text': (4.5, 60), 'mark': (3.0, 30)}
+
+GROUNDS = {
+    '--fc-ink':       [('--fc-page', 'text'), ('--fc-surface', 'text'), ('--xg-tip', 'text')],
+    '--fc-ink-3':     [('--fc-page', 'text'), ('--fc-surface', 'text'), ('--fc-tint-2', 'text')],
+    # Past table rows are muted text on the card, as well as the captions.
+    '--fc-muted':     [('--fc-page', 'text'), ('--fc-surface', 'text'), ('--fc-tint-2', 'text')],
+    '--fc-accent':    [('--fc-surface', 'text')],
+    '--fc-on-accent': [('--fc-accent', 'text')],
+    # The Right now level is text, however large; the curve is a 2px mark.
+    '--xg-curve':     [('--fc-surface', 'text'), ('--xg-night', 'mark')],
+    # Table text and the direction word on the card; markers in the graph,
+    # which can sit on the night band.
+    '--xg-hi':        [('--fc-surface', 'text'), ('--xg-night', 'mark')],
+    '--xg-lo':        [('--fc-surface', 'text'), ('--xg-night', 'mark')],
+    '--xg-lab':       [('--fc-surface', 'text')],
+    '--xg-evlab':     [('--fc-surface', 'text'), ('--xg-night', 'text')],
+    '--xg-unitlab':   [('--fc-surface', 'text'), ('--xg-night', 'text')],
+    '--xg-frame':     [('--fc-surface', 'mark')],
+    '--xg-now':       [('--fc-surface', 'mark'), ('--xg-night', 'mark')],
+}
+
+
+def _rgb(h):
+    return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def _srgb_linear(v):
+    return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+
+
+def contrast(a, b):
+    """The WCAG 2 ratio of two '#rrggbb' colors."""
+    def luminance(h):
+        r, g, b = (_srgb_linear(v / 255.0) for v in _rgb(h))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    hi, lo = sorted((luminance(a), luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def apca(text, ground):
+    """APCA Lc (APCA-W3 0.0.98G-4g) of '#rrggbb' text on a '#rrggbb' ground:
+    positive for dark text on a lighter ground, negative for light on dark.
+    The same constants and steps as weewx-liveseasons' tools/contrast.py, so
+    the two skins measure alike; TestPalettes pins them to APCA's published
+    fixed points."""
+    def y(h):
+        v = sum(k * (c / 255.0) ** 2.4 for k, c in zip((0.2126729, 0.7151522, 0.0721750), _rgb(h)))
+        return v + (0.022 - v) ** 1.414 if v <= 0.022 else v
+    ty, gy = y(text), y(ground)
+    if abs(gy - ty) < 0.0005:
+        return 0.0
+    if gy > ty:
+        s = (gy ** 0.56 - ty ** 0.57) * 1.14
+        return 0.0 if s < 0.1 else (s - 0.027) * 100
+    s = (gy ** 0.65 - ty ** 0.62) * 1.14
+    return 0.0 if s > -0.1 else (s + 0.027) * 100
+
+
+def css_palettes():
+    css = open(CSS_PATH).read()
+    tokens = r'(--[\w-]+)\s*:\s*(#[0-9a-fA-F]{6})'
+    light = dict(re.findall(tokens, re.search(r':root\s*\{(.*?)\n\}', css, re.S).group(1)))
+    dark_block = re.search(r'@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{(.*?)\n\}',
+                           css, re.S)
+    assert dark_block, 'no prefers-color-scheme dark block in xtide.css'
+    dark_only = dict(re.findall(tokens, dark_block.group(1)))
+    return light, dict(light, **dark_only), dark_only
+
+
+class TestPalettes:
+    def test_the_measures_are_the_published_ones(self):
+        """The oracle.  A passing sweep proves nothing about the arithmetic:
+        a wrong exponent or a swapped sign passes pairs as easily as it fails
+        them.  APCA-W3 publishes Lc 106.04 for black on white and -107.88
+        for white on black; the WCAG ratio of the two is 21 by definition."""
+        assert abs(apca('#000000', '#ffffff') - 106.04) < 0.01
+        assert abs(apca('#ffffff', '#000000') + 107.88) < 0.01
+        assert abs(contrast('#000000', '#ffffff') - 21.0) < 1e-9
+
+    @pytest.mark.parametrize('name', ['light', 'dark'])
+    def test_every_token_clears_both_bars_on_every_ground(self, name):
+        light, dark, _ = css_palettes()
+        palette = light if name == 'light' else dark
+        bad = []
+        for tok, pairs in sorted(GROUNDS.items()):
+            for ground, kind in pairs:
+                ratio = contrast(palette[tok], palette[ground])
+                lc = apca(palette[tok], palette[ground])
+                wcag_bar, apca_bar = BARS[kind]
+                if ratio + 1e-9 < wcag_bar or abs(lc) < apca_bar:
+                    bad.append('%s on %s (%s): WCAG %.2f, APCA Lc %.1f' % (tok, ground, kind, ratio, lc))
+        assert not bad, ('%s palette misses WCAG %s / APCA %s: %s'
+                         % (name, BARS['text'][0], BARS['text'][1], '; '.join(bad)))
+
+    @pytest.mark.parametrize('name', ['light', 'dark'])
+    def test_the_text_tiers_stay_distinct(self, name):
+        """Ink, secondary ink and muted are three levels.  Raising the dark
+        muted gray to clear Lc 60 first put it within 2 Lc of --fc-ink-3,
+        which erased the difference between them; a tier has to stay a
+        tier, not just pass."""
+        light, dark, _ = css_palettes()
+        palette = light if name == 'light' else dark
+        card = palette['--fc-surface']
+        ink, ink3, muted = (abs(apca(palette[t], card)) for t in ('--fc-ink', '--fc-ink-3', '--fc-muted'))
+        assert ink - ink3 >= 5 and ink3 - muted >= 5, (
+            '%s: ink %.1f, ink-3 %.1f, muted %.1f on the card' % (name, ink, ink3, muted))
+
+    def test_nothing_is_dimmed_by_opacity(self):
+        """Opacity is a color, and one no token table can see: past tide rows
+        at opacity .45 measured Lc 13 to 53.  They are muted by color now,
+        and nothing in the stylesheet may reach for opacity again."""
+        css = re.sub(r'/\*.*?\*/', '', open(CSS_PATH).read(), flags=re.S)
+        assert 'opacity' not in css
+        past = re.search(r'\.fc \.xg-evrow\.past,[^{]*\{([^}]*)\}', css)
+        assert past and 'var(--fc-muted)' in past.group(1)
+
+    def test_every_light_token_has_a_dark_value(self):
+        """A token defined only in :root keeps its LIGHT value on a dark page,
+        which is how one unreadable element survives a theme."""
+        light, _, dark_only = css_palettes()
+        assert sorted(set(light) - set(dark_only)) == []
+        assert sorted(set(dark_only) - set(light)) == []
+
+    def test_the_page_stays_behind_the_cards(self):
+        """The page is the recessed ground in BOTH themes; a page brighter
+        than its cards inverts the figure.  Contrast against black is
+        monotonic in luminance, so it orders the two."""
+        light, dark, _ = css_palettes()
+        for palette in (light, dark):
+            assert (contrast(palette['--fc-page'], '#000000')
+                    < contrast(palette['--fc-surface'], '#000000'))
+
+    def test_no_color_literal_outside_the_palettes(self):
+        """Every color in a rule is a token, so the dark block reaches it."""
+        css = open(CSS_PATH).read()
+        body = re.sub(r':root\s*\{.*?\n\}', '', css, flags=re.S)
+        body = re.sub(r'/\*.*?\*/', '', body, flags=re.S)
+        assert re.findall(r'#[0-9a-fA-F]{3,6}\b', body) == []
 
 
 LANG_DIR = os.path.join(REPO, 'skins', 'xtide', 'lang')
@@ -389,10 +723,11 @@ class TestI18n:
 
     @staticmethod
     def js_keys():
-        js = open(os.path.join(REPO, 'skins', 'xtide', 'xtide.js')).read()
         keys = set()
-        for m in re.finditer(r"\btr\(([^)]*)\)", js):
-            keys |= set(re.findall(r"'([^']+)'", m.group(1)))
+        for name in ('xtide.js', 'xtide_now.js'):
+            js = open(os.path.join(REPO, 'skins', 'xtide', name)).read()
+            for m in re.finditer(r"\btr\(([^)]*)\)", js):
+                keys |= set(re.findall(r"'([^']+)'", m.group(1)))
         return keys
 
     def test_en_conf_ships_exactly_what_renders(self):
@@ -535,6 +870,8 @@ class TestRealTide:
     def test_graph_builder_against_real_tide(self, real_tide_cfg):
         graph = xtide.XTideGraphBuilder(REAL_TIDE, LOC).build()
         assert graph is not None
+        # Flater's file names who processed the data; this is the page's credit.
+        assert graph.credit.startswith('NOAA data'), graph.credit
         payload = json.loads(graph.json)
         assert len(payload['events']) >= 100  # ~116 extremes in 30 days
         # The plain-mode extremes must sit on the raw-mode curve: at an
@@ -546,6 +883,68 @@ class TestRealTide:
             idx = min(max(round((ts - view['t0']) / view['step']), 0), len(view['samples']) - 1)
             assert abs(level - view['samples'][idx]) < 0.25, \
                 'event at %d (%.2f) is off the curve (%.2f)' % (ts, level, view['samples'][idx])
+
+    def test_a_units_preference_file_is_overridden(self, tmp_path, monkeypatch):
+        """A ~/.xtide.xml units preference changes what tide prints when -u
+        is absent (measured: Palo Alto in meters).  The premise is checked
+        first, so this cannot pass on a tide that ignores the file."""
+        (tmp_path / '.xtide.xml').write_text('<?xml version="1.0"?>\n<xtideoptions u="m"/>\n')
+        monkeypatch.setenv('HOME', str(tmp_path))
+        assert ' m,"High Tide"' in self.run_real_tide('p', 48), \
+            'premise: tide no longer honors ~/.xtide.xml units'
+        cfg = make_cfg(REAL_TIDE, days=2)
+        assert xtide.XTidePoller.populate_tidal_events(cfg) and cfg.events
+        assert all(ev.usUnits == weewx.US for ev in cfg.events)   # Palo Alto is in feet
+        graph = xtide.XTideGraphBuilder(REAL_TIDE, LOC, units='x').build()
+        assert graph is not None and graph.unit == 'ft'
+        graph = xtide.XTideGraphBuilder(REAL_TIDE, LOC, units='m').build()
+        assert graph is not None and graph.unit == 'm'
+        assert max(json.loads(graph.json)['views']['day']['samples']) < 4.0
+
+
+# A harmonics file whose stations are stored in METERS.  Flater's free file
+# is US-only and all in feet, so without this nothing real ever exercises a
+# metric station.  From openwatersio/tide-database's releases; installed in
+# its own directory, never production's, so production's station list is
+# unchanged.  Missing is a FAILURE, like a missing tide.
+METRIC_HFILE_GLOB = os.environ.get('XTIDE_METRIC_HFILE',
+                                   '/usr/local/share/xtide-neaps/neaps-*-metric.tcd')
+METRIC_LOC = 'Brest, Brittany, France'
+
+
+class TestRealMetricHarmonics:
+    @pytest.fixture
+    def metric_hfile(self, monkeypatch):
+        import glob
+        found = sorted(glob.glob(METRIC_HFILE_GLOB))
+        assert found, (
+            'no metric harmonics file at %s -- download neaps-<date>-metric.tcd '
+            'from https://github.com/openwatersio/tide-database/releases into '
+            '/usr/local/share/xtide-neaps/ (or set XTIDE_METRIC_HFILE)' % METRIC_HFILE_GLOB)
+        monkeypatch.setenv('HFILE_PATH', found[-1])
+        return found[-1]
+
+    def test_events_are_stored_in_meters(self, metric_hfile):
+        cfg = xtide.Configuration(lock=threading.Lock(), location=METRIC_LOC,
+                                  prog=REAL_TIDE, days=2, events=[])
+        assert xtide.XTidePoller.populate_tidal_events(cfg) and cfg.events, \
+            '%s not found in %s' % (METRIC_LOC, metric_hfile)
+        for ev in cfg.events:
+            assert ev.location == METRIC_LOC
+            assert ev.usUnits == weewx.METRIC
+            assert -1.0 < ev.level < 10.0   # Brest spans about 0.5 to 7.5 m
+
+    @pytest.mark.parametrize('units, unit, top', [('x', 'm', 10.0), ('m', 'm', 10.0), ('ft', 'ft', 30.0)])
+    def test_graph_units(self, metric_hfile, units, unit, top):
+        graph = xtide.XTideGraphBuilder(REAL_TIDE, METRIC_LOC, units=units).build()
+        assert graph is not None
+        assert graph.unit == unit
+        # No Credit line in this file: the page credits its Source instead.
+        assert graph.credit == 'TICON-4'
+        samples = json.loads(graph.json)['views']['day']['samples']
+        assert max(samples) < top
+        if unit == 'ft':
+            assert max(samples) > 10.0      # really converted, not relabeled
 
 
 class TestServiceHelpers:
@@ -676,6 +1075,7 @@ class TestUnquotedLocation:
         generator.config_dict = {'XTide': dict(self.unquoted_conf(),
                                                prog=str(prog))}
         generator.skin_dict = {'Texts': {}}
+        generator.converter = weewx.units.Converter()
         variables = xtide.XTideVariables.__new__(xtide.XTideVariables)
         variables.generator = generator
         variables._graph = None

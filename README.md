@@ -9,21 +9,26 @@ Open source plugin for WeeWX software.
 
 A WeeWX extension for XTide.  XTide is a package that provides tide and current predictions in a wide variety of formats.  With this extension, one can include high and low tide predictions for a given location in reports.
 
-The bundled sample report is an interactive tide graph: continuous tide levels with the
-high and low tides marked, tabs for 2-day, 7-day and 30-day views, night (sunset to
-sunrise) shading, a "now" line, and click/hover anywhere on the curve to see the exact
-time and tide level.  The tidal events for the selected view are listed below the graph.
-The page is self-contained (no javascript libraries, nothing fetched at run time).
+The bundled sample report is a tide page in three parts.  Right now shows the current
+level, whether the tide is rising or falling, and the next high or low with a countdown.
+The tide graph draws continuous tide levels with the high and low tides marked, tabs for
+2-day, 7-day and 30-day views, night (sunset to sunrise) shading, a "now" line, and
+click/hover anywhere on the curve to see the exact time and tide level.  The tide table
+lists the tides for the selected view, with how long until each.  The page follows the
+reader's light or dark system setting, keeps its clock-driven parts current without
+reloading, and is self-contained (no javascript libraries, nothing fetched at run time).
 
 ![The tide page](XTideSampleReport.png)
+
+![The tide page in dark mode](XTideSampleReport-dark.png)
 
 The sample report speaks nine languages: English, Danish, Dutch, French, German,
 Italian, Norwegian, Spanish and Swedish.  To pick one, set `lang` on the report's
 stanza in weewx.conf (e.g. `lang = de`, or `lang = de_DE.UTF-8` to also localize
 month and weekday names) — details in the manual's
 [Translating the tide page](https://chaunceygardiner.github.io/weewx-xtide/i18n.html).
-The non-English translations are Beta, pending native-speaker review — corrections are
-welcome as [GitHub issues](https://github.com/chaunceygardiner/weewx-xtide/issues).
+Corrections to any translation are welcome as
+[GitHub issues](https://github.com/chaunceygardiner/weewx-xtide/issues).
 
 ![The tide page in German](XTideSampleReport-de.png)
 
@@ -49,8 +54,8 @@ Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
 
    # Download and install libtcd
    cd /tmp
-   wget https://flaterco.com/files/xtide/libtcd-2.2.7-r2.tar.bz2
-   tar xf libtcd-2.2.7-r2.tar.bz2
+   wget https://flaterco.com/files/xtide/libtcd-2.2.7-r3.tar.xz
+   tar xf libtcd-2.2.7-r3.tar.xz
    cd libtcd-2.2.7
    ./configure
    make
@@ -83,6 +88,12 @@ Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
    ```
    /usr/local/bin/tide -l "Palo Alto Yacht Harbor"
    ```
+
+1. The free harmonics file above covers stations in the United States only.  For a
+   station anywhere else, install a harmonics file from
+   [openwatersio/tide-database](https://github.com/openwatersio/tide-database) instead,
+   as described in the manual's
+   [Stations outside the US](https://chaunceygardiner.github.io/weewx-xtide/installation.html#stations-outside-the-us).
 
 ## WeeWX 5 Installation Instructions
 
@@ -124,7 +135,8 @@ Copyright (C)2024-2026 by John A Kline (john@johnkline.com)
 
 1. By default, xtide will request tides for Palo Alto Yacht Harbor, San Francisco Bay, California
    Change the location tag **under XTide** in weewx.conf to a location for which tidal data exists.
-   Locations can be found at (https://flaterco.com/xtide/locations.html).
+   Locations can be found at (https://flaterco.com/xtide/locations.html), or, for whatever
+   harmonics file is installed, with `/usr/local/bin/tide -m l`.
    Keep the quotation marks: a station name usually contains commas, and weewx.conf reads an
    unquoted comma-separated value as a list rather than as one name.
    ```
@@ -233,15 +245,22 @@ both historical output formats get exercised (a modern tide can no longer produc
 /usr/local/bin/tide, or set the XTIDE_PROG environment variable): these are worth
 running after any xtide or harmonics upgrade.  A tide program that is missing, or that
 is installed but not producing events, FAILS the suite — either one is an early signal
-that the extension will not work in production.  From the repository root, using a Python
+that the extension will not work in production.  The integration tests also need a
+harmonics file whose stations are stored in meters, since the free file is all feet:
+download `neaps-<date>-metric.tcd` from the
+[tide-database releases](https://github.com/openwatersio/tide-database/releases) into
+/usr/local/share/xtide-neaps/ (or set XTIDE_METRIC_HFILE to its path).  Keep it out of
+the directory named in /etc/xtide.conf, so the stations tide lists do not change.
+Without it the suite fails.  From the repository root, using a Python
 that has WeeWX and pytest installed (e.g., the WeeWX virtual environment):
 ```
 python -m pytest tests
 ```
 
-## Icons
-
-Icons by [JChiaWorks](https://www.jchiaworks.com/)
+The suite renders the sample page but cannot run its javascript.  Before a release,
+`tools/verify_page.py` drives a rendered report in Chromium and Firefox, light and dark,
+with the browser clock pinned, and checks what the page's scripts write; its header
+explains how to render a report for it and what it needs (Playwright).
 
 ## Licensing
 

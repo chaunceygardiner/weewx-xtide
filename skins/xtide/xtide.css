@@ -1,43 +1,228 @@
 /* Copyright 2026 by John A Kline.  See LICENSE.txt for your rights.
-   Styles for the weewx-xtide sample report.  All colors live here:
-   Cheetah owns '#', so hex literals must never appear in the .tmpl file. */
 
-body { margin: 0; font-family: sans-serif; background: #ffffff; color: #202020; }
-.xg-page { max-width: 1000px; margin: 0 auto; padding: 8px 12px 24px 12px; text-align: center; }
-.xg-title { color: #367ba3; font-size: 40px; border-bottom: 1pt solid #000000; padding-bottom: 6px; margin-bottom: 14px; }
-.xg-empty { font-size: 18px; }
+   The weewx-xtide sample report: three white cards on a gray page, after
+   weewx-liveseasons' tides page, with the class names that page uses.
 
-/* Tabs */
-.xg-tabs { margin-bottom: 10px; }
-.xg-tab { font-size: 16px; padding: 8px 22px; margin: 0 4px; border: 1px solid #aaaaaa;
-          border-radius: 6px 6px 0 0; background: #f2f2f2; color: #202020; cursor: pointer; }
-.xg-tab.xg-active { background: #367ba3; color: #ffffff; border-color: #367ba3; }
+   All colors live here: Cheetah owns '#', so hex literals must never appear
+   in the .tmpl file.  And every color here is a custom property, never a
+   literal in a rule.
 
-/* Graph */
-.xg-wrap { position: relative; }
-.xg-hidden { display: none; }
-svg.xg { width: 100%; height: auto; display: block; }
-.xg-night { fill: #e3ecf4; }
-.xg-grid { stroke: #dddddd; stroke-width: 1; }
-.xg-frame { fill: none; stroke: #aaaaaa; stroke-width: 1; }
-.xg-curve { fill: none; stroke: #367ba3; stroke-width: 2; }
-.xg-hi { fill: #1a6ea0; }
-.xg-lo { fill: #b06e2b; }
-.xg-lab { font-family: sans-serif; font-size: 12px; fill: #555555; }
-.xg-ylab { text-anchor: end; }
-.xg-xlab { text-anchor: middle; }
-.xg-evlab { text-anchor: middle; font-size: 11px; fill: #333333; }
-.xg-unitlab { text-anchor: start; fill: #888888; }
-.xg-nowline { stroke: #cc3333; stroke-width: 1.5; stroke-dasharray: 4 3; }
-.xg-cursor { fill: none; stroke: #cc3333; stroke-width: 2; }
-.xg-tooltip { display: none; position: absolute; background: #ffffff; border: 1px solid #888888;
-              border-radius: 4px; padding: 6px 9px; font-size: 13px; text-align: left;
-              pointer-events: none; box-shadow: 0 2px 6px rgba(0,0,0,0.25); white-space: nowrap; }
+   THEMING.  :root carries the light values; the dark counterparts are
+   redefined under prefers-color-scheme, so the page follows the reader's
+   own setting with no toggle, no javascript and no stored preference for a
+   copier to inherit -- weewx-nws' sample skin does the same.  The light
+   --fc-* values are weewx-nws's and the --xg-* marks start from
+   weewx-liveseasons', both on the same two cards, #ffffff and #111834, so
+   the skins read as one family.  Where the stricter contrast bar below
+   demanded it, a value was re-derived rather than kept.
+   tests/test_xtide.py asserts every token against every ground it lands
+   on, in both palettes, by both measures.
 
-/* Event list */
-.xg-events { width: 97%; margin: 18px auto 0 auto; border-collapse: collapse; border: 1pt solid #aaaaaa; }
-.xg-evrow td { border-bottom: 1pt solid #dddddd; padding: 8px 12px; font-size: 17px; }
-.xg-evicon img { width: 40px; height: auto; display: block; margin: 0 auto; }
-.xg-evlevel { font-size: 20px; }
-.xg-count, .xg-credits { font-style: italic; color: #808080; margin-top: 10px; font-size: 13px; }
-.xg-credits a { color: #367ba3; }
+   The xg-* class names are a contract with XTideGraphBuilder's SVGs and
+   xtide.js; weewx-liveseasons restyles the same names. */
+
+:root {
+  --fc-page:#e3e3e3;
+  --fc-surface:#ffffff;
+  --fc-ink:#222222;
+  --fc-ink-3:#3f4955;
+  --fc-muted:#545e69;
+  --fc-line:#999999;
+  --fc-hair-2:#eaeef2;
+  --fc-rule:#c2c8ce;
+  --fc-grid-2:#c8ced6;
+  --fc-tint-2:#f0f3f6;
+  --fc-accent:#3378a0;
+  --fc-head-rule:#666666;
+  --fc-on-accent:#ffffff;
+  --xg-night:#e7edf3;
+  --xg-grid:#dddddd;
+  --xg-frame:#949494;
+  --xg-curve:#367ba3;
+  --xg-hi:#1a6ea0;
+  --xg-lo:#a4641f;
+  --xg-lab:#555555;
+  --xg-evlab:#333333;
+  /* #545e69 (--fc-muted), not liveseasons' #6a7281: the unit label sits at
+     the graph's top left, which is the night band whenever the view starts
+     at midnight, and #6a7281 reads 4.11 there. */
+  --xg-unitlab:#545e69;
+  --xg-now:#cc3333;
+  --xg-tip:#ffffff;
+  --xg-tip-line:#888888;
+}
+
+/* The night band goes LIGHTER than the card here rather than darker, which
+   is what a night plate does on a dark ground: darker would read as a hole
+   cut in the card.  --fc-on-accent inverts to a near-black navy because the
+   accent fill is lighter on dark, so readable text on it is dark.
+
+   THE BAR IS THE STRICTER OF TWO MEASURES.  Text clears WCAG 2 at 4.5 AND
+   APCA at Lc 60 (weewx-liveseasons' standard); marks clear 3.0 and Lc 30.
+   The ratio alone passed every value this block started from -- weewx-nws's
+   -- while APCA put the muted gray at Lc 49 and the accent at 37.  So the
+   text and mark colors below were derived, not picked: each keeps its OKLab
+   hue and chroma and has its lightness raised until it clears both bars on
+   every ground it lands on.  --fc-ink-3 was then raised further, to Lc 74,
+   so that it stays a tier above the muted gray (Lc 63) instead of merging
+   with it.  --xg-unitlab has its own value because it also sits on the
+   night band, where the muted gray has no margin. */
+@media (prefers-color-scheme: dark) {
+:root {
+  --fc-page:#000425;
+  --fc-surface:#111834;
+  --fc-ink:#f5f5f5;
+  --fc-ink-3:#c1ccda;
+  --fc-muted:#afb9c5;
+  --fc-line:#666a8c;
+  --fc-hair-2:#1f2542;
+  --fc-rule:#3d4262;
+  --fc-grid-2:#383d5c;
+  --fc-tint-2:#1a213d;
+  --fc-accent:#7abde8;
+  --fc-head-rule:#999cc1;
+  --fc-on-accent:#181f3b;
+  --xg-night:#1e2749;
+  --xg-grid:#232b4c;
+  --xg-frame:#6b7aa6;
+  --xg-curve:#84baf1;
+  --xg-hi:#88bcde;
+  --xg-lo:#e4aa64;
+  --xg-lab:#afb9c5;
+  --xg-evlab:#ded9c9;
+  --xg-unitlab:#afb8de;
+  --xg-now:#e05a5a;
+  --xg-tip:#1b2340;
+  --xg-tip-line:#2a3358;
+}
+}
+
+html{color-scheme:light dark}
+[hidden]{display:none !important}
+body{margin:0;background:var(--fc-page);color:var(--fc-ink);
+     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+
+/* ---- the page ------------------------------------------------------- */
+.fc{padding:26px 20px 34px;font-size:16px;color:var(--fc-ink);text-align:left}
+.fc .fcwrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:26px}
+.fc section{background:var(--fc-surface);border:1px solid var(--fc-line);
+            padding:18px 20px 16px}
+.fc .eyebrow{color:var(--fc-accent);font-weight:600;font-size:.8em;
+             letter-spacing:.08em;text-transform:uppercase;margin:0 0 12px}
+.fc .caption{color:var(--fc-muted);font-size:.85em;margin:14px 0 0;max-width:86ch;
+             line-height:1.55}
+.fc .cfoot{color:var(--fc-muted);font-size:.82em;border-top:1px solid var(--fc-rule);
+           padding-top:10px;line-height:1.6}
+.fc .cfoot strong{color:var(--fc-ink-3);letter-spacing:.04em}
+.fc .chead{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 18px;
+           border-bottom:2px solid var(--fc-head-rule);padding-bottom:8px}
+.fc .chead h1{margin:0;font-size:1.6em;font-weight:600;color:var(--fc-ink)}
+.fc .sub{color:var(--fc-muted);font-size:.95em}
+.fc .empty{margin:0;line-height:1.6;color:var(--fc-ink-3)}
+
+/* ---- Right now ------------------------------------------------------ */
+.fc .tnowgrid{display:grid;grid-template-columns:auto 1fr;gap:34px;align-items:center}
+.fc .tstate{display:flex;align-items:baseline;gap:14px}
+.fc .tnowlab,.fc .tnextlab{color:var(--fc-muted);font-size:.78em;letter-spacing:.06em;
+                           text-transform:uppercase}
+.fc .tnowbig{font-size:2.6em;font-weight:600;color:var(--xg-curve);
+             font-variant-numeric:tabular-nums;line-height:1}
+.fc .tunit{font-size:.4em;font-weight:400;color:var(--fc-muted)}
+.fc .tdir{display:flex;align-items:center;gap:5px;font-size:.95em;font-weight:600}
+.fc .tdir.up{color:var(--xg-hi)}
+.fc .tdir.down{color:var(--xg-lo)}
+.fc .tarrow{width:1.05em;height:1.05em;fill:none;stroke:currentColor;stroke-width:2.2;
+            stroke-linecap:round;stroke-linejoin:round}
+.fc .tnext{border-left:1px solid var(--fc-rule);padding-left:26px}
+.fc .tnextbig{font-size:1.5em;font-weight:600;color:var(--fc-accent);margin-top:2px;
+              font-variant-numeric:tabular-nums}
+.fc .tnextsub{color:var(--fc-muted);font-size:.9em;margin-top:2px;
+              font-variant-numeric:tabular-nums}
+
+/* ---- the graph's tabs ----------------------------------------------- */
+.fc .daytabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.fc .daytab{font:inherit;cursor:pointer;background:var(--fc-tint-2);color:var(--fc-ink-3);
+            border:1px solid var(--fc-grid-2);border-radius:6px;padding:7px 16px;
+            line-height:1.15;text-align:center}
+.fc .daytab .dt1{display:block;font-weight:600;font-size:.9em}
+.fc .daytab .dt2{display:block;color:var(--fc-muted);font-size:.72em}
+/* xtide.js toggles xg-active and nothing else, so the selected look hangs
+   off it.  One on-accent color for both lines: the muted second tone does
+   not reach 4.5 on the accent fill at this size. */
+.fc .daytab.xg-active{background:var(--fc-accent);border-color:var(--fc-accent);
+                      color:var(--fc-on-accent)}
+.fc .daytab.xg-active .dt2{color:var(--fc-on-accent)}
+
+/* ---- the graph ------------------------------------------------------ */
+.xg-wrap{position:relative}
+.xg-hidden{display:none}
+svg.xg{width:100%;height:auto;display:block;background:var(--fc-surface);
+       border:1px solid var(--xg-frame);box-sizing:border-box}
+.xg-night{fill:var(--xg-night)}
+.xg-grid{stroke:var(--xg-grid);stroke-width:1}
+.xg-frame{fill:none;stroke:var(--xg-frame);stroke-width:1}
+.xg-curve{fill:none;stroke:var(--xg-curve);stroke-width:2}
+.xg-hi{fill:var(--xg-hi)}
+.xg-lo{fill:var(--xg-lo)}
+.xg-lab{font-family:sans-serif;font-size:12px;fill:var(--xg-lab)}
+.xg-ylab{text-anchor:end}
+.xg-xlab{text-anchor:middle}
+/* The halo: a stroke in the card's own color, painted UNDER the glyphs, so
+   an event label stays legible where it crosses the curve or a gridline --
+   which a label set below a high near the top edge does.  "Under" comes
+   from the paint-order="stroke" attribute XTideGraphBuilder puts on each
+   label; the property is not written here because the Nu checker's CSS
+   validator does not know it. */
+.xg-evlab{text-anchor:middle;font-size:11px;fill:var(--xg-evlab);
+          stroke:var(--fc-surface);stroke-width:3px;stroke-linejoin:round}
+.xg-unitlab{text-anchor:start;fill:var(--xg-unitlab)}
+.xg-nowline{stroke:var(--xg-now);stroke-width:1.5;stroke-dasharray:4 3}
+.xg-cursor{fill:none;stroke:var(--xg-now);stroke-width:2}
+.xg-tooltip{display:none;position:absolute;background:var(--xg-tip);color:var(--fc-ink);
+            border:1px solid var(--xg-tip-line);border-radius:4px;padding:6px 9px;
+            font-size:13px;text-align:left;pointer-events:none;
+            box-shadow:0 2px 6px rgba(0,0,0,0.25);white-space:nowrap}
+
+/* ---- the tide table ------------------------------------------------- */
+.fc .evhead,.fc .xg-evrow{display:grid;grid-template-columns:150px 110px 1fr 150px;
+                          gap:16px;align-items:center}
+.fc .evhead{color:var(--fc-muted);font-size:.72em;letter-spacing:.08em;
+            text-transform:uppercase;padding-bottom:8px;
+            border-bottom:1px solid var(--fc-line)}
+.fc .xg-evrow{padding:9px 0;border-bottom:1px solid var(--fc-hair-2);font-size:.9em}
+.fc .ev-k{font-weight:600;display:flex;align-items:center;gap:8px}
+.fc .ev-k::before{content:"";width:9px;height:9px;border-radius:50%;flex:none}
+.fc .ev-k.ev-hi{color:var(--xg-hi)}
+.fc .ev-k.ev-hi::before{background:var(--xg-hi)}
+.fc .ev-k.ev-lo{color:var(--xg-lo)}
+.fc .ev-k.ev-lo::before{background:var(--xg-lo)}
+/* A tide already past is muted by COLOR, never by opacity.  Opacity is a
+   color too, and at .45 it put this text at Lc 13 to 53 -- far under the
+   bar -- while a real muted color clears it by construction.  After the
+   ev-k rules, so it outranks them. */
+.fc .xg-evrow.past,.fc .xg-evrow.past .ev-k,.fc .xg-evrow.past .ev-w{color:var(--fc-muted)}
+.fc .xg-evrow.past .ev-k::before{background:var(--fc-muted)}
+.fc .ev-l,.fc .ev-t,.fc .ev-w{font-variant-numeric:tabular-nums}
+.fc .ev-w,.fc .evhead > div:last-child{text-align:right}
+.fc .ev-w{color:var(--fc-muted)}
+.fc #xg-count{color:var(--fc-ink-3)}
+
+/* ---- the phone ------------------------------------------------------ */
+@media (max-width: 600px){
+  .fc{padding:16px 16px 24px}
+  .fc .fcwrap{gap:18px}
+  .fc section{padding:14px 14px 12px}
+  .fc .tnowgrid{grid-template-columns:1fr;gap:16px}
+  .fc .tnext{border-left:0;border-top:1px solid var(--fc-rule);padding:14px 0 0}
+  .fc .daytab{flex:1;padding:8px 6px}
+  .fc .evhead,.fc .xg-evrow{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1.6fr);gap:10px}
+  .fc .evhead > div:last-child,.fc .xg-evrow .ev-w{display:none}
+  .fc .xg-evrow{font-size:.85em}
+  /* SVG text is in viewBox units, so a phone-width graph shrinks it with
+     the chart: scale it back up, and drop the day view's inline event
+     labels, which would collide -- tap for the tooltip instead.  22 and
+     not larger: the builder keeps an axis label's center 24 units inside
+     the right edge, and at 26 the last weekday name was clipped. */
+  .xg-area .xg-lab{font-size:22px}
+  .xg-area .xg-evlab{display:none}
+}
