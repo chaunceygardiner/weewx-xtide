@@ -51,7 +51,7 @@ from weewx.cheetahgenerator import SearchList
 
 log = logging.getLogger(__name__)
 
-WEEWX_XTIDE_VERSION = "3.1"
+WEEWX_XTIDE_VERSION = "3.2"
 
 if sys.version_info[0] < 3:
     raise weewx.UnsupportedFeature(
@@ -450,6 +450,29 @@ def use_12_hour_labels() -> bool:
         return True
 
 
+def resolve_clock(clock: Any) -> bool:
+    """Whether to write 12-hour times, for a caller-supplied clock= value.
+    None -- the default, and what the sample skin passes -- defers to the
+    process locale via use_12_hour_labels(); 12 or 24 states the embedding
+    page's own choice.  Accepts the ints and the strings '12'/'24', since
+    Cheetah hands a template's arguments across as strings more often than
+    anyone expects.  Anything else is a typo in someone's skin.conf: log it
+    and fall back, because blanking a station's tide page over a misspelled
+    option is out of all proportion to the mistake."""
+    if clock is None:
+        return use_12_hour_labels()
+    try:
+        hours = int(clock)
+    except (TypeError, ValueError):
+        hours = 0
+    if hours == 12:
+        return True
+    if hours == 24:
+        return False
+    log.error('graph: clock must be 12 or 24, not %r; using the locale default.' % (clock,))
+    return use_12_hour_labels()
+
+
 def tide_units(converter: weewx.units.Converter) -> str:
     """tide's -u value for a report: the report's altitude unit when tide can
     draw in it, else 'x' (the harmonics file's own units)."""
@@ -495,7 +518,7 @@ class XTideGraphBuilder:
     ]
 
     def __init__(self, prog: str, location: str, texts: Optional[Dict[str, Any]] = None,
-                 units: str = 'x'):
+                 units: str = 'x', clock: Any = None, unit_label: Optional[str] = None):
         self.prog = prog
         self.location = location
         # tide's -u: 'ft' or 'm' to draw in the report's units, 'x' for the
@@ -507,8 +530,23 @@ class XTideGraphBuilder:
         # The report's [Texts] section (skin_dict with the lang file merged
         # in), for the strings this builder composes server-side.
         self.texts: Dict[str, Any] = texts if texts is not None else {}
+        # The caller's presentation choices, for a skin embedding the graph
+        # in a page with its own typography.  Both default to what the
+        # sample skin has always done, so omitting them changes nothing.
+        # One decision, one owner: hour12 drives every time this builder
+        # writes AND rides the json payload, so xtide.js's tooltip cannot
+        # disagree with the labels and rows around it.
+        self.hour12 = resolve_clock(clock)
+        self.unit_label = unit_label
 
     # ── translation ──────────────────────────────────────────────────────
+    @staticmethod
+    def _esc(s: str) -> str:
+        """Escape for markup: the three characters that matter in the text
+        nodes these strings land in.  Shared so a caller-supplied label is
+        escaped exactly as a translation is."""
+        return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
     def _t(self, key: str, **values: Any) -> str:
         """The [Texts] translation for key (gettext-style: the English
         string IS the key, a missing entry falls back to it), escaped for
@@ -519,7 +557,7 @@ class XTideGraphBuilder:
         s = self.texts.get(key, key)
         if not isinstance(s, str):
             s = key
-        s = s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        s = self._esc(s)
         if not values:
             return s
         try:
@@ -569,9 +607,22 @@ class XTideGraphBuilder:
                     'vlo': vlo, 'vhi': vhi,
                     'samples': [round(v, 3) for v in values],
                 }
+            time_fmt = (self._raw('%a, %b %-d, %-I:%M %p') if self.hour12
+                        else self._raw('%a, %b %-d, %H:%M'))
             payload = {
                 'unit': unit,
                 'tz': local_timezone_name(),
+                # The clock for xtide.js's tooltip: without it the tooltip
+                # formats via Intl on the VISITOR's locale and can read
+                # 24-hour over a 12-hour table.  Read off the RESOLVED
+                # format, never self.hour12: the decision passes through
+                # [Texts] on its way to the page, and every shipped
+                # translation maps the 12-hour keys to 24-hour forms, so a
+                # 12-hour decision renders a 24-hour Danish page.  Sending
+                # the intent rather than what was rendered put the tooltip
+                # back out of step with the table -- the defect this whole
+                # mechanism exists to prevent.
+                'hour12': '%p' in time_fmt,
                 'layout': {'w': self.W, 'h': self.H, 'ml': self.ML, 'mt': self.MT,
                            'pw': self.W - self.ML - self.MR, 'ph': self.H - self.MT - self.MB},
                 'views': views,
@@ -586,9 +637,21 @@ class XTideGraphBuilder:
                     'Falling': self._raw('Falling'),
                 },
             }
-            unit_long = self._t('feet') if unit == 'ft' else self._t('meters')
-            time_fmt = (self._raw('%a, %b %d, %Y %I:%M %p') if use_12_hour_labels()
-                        else self._raw('%a, %b %d, %Y %H:%M'))
+            # The caller's label wins when it gave one, for a page that
+            # writes units short ("7.72 ft").  WeeWX unit labels carry a
+            # LEADING SPACE by convention -- $unit.label.altitude is ' ft',
+            # and this extension's own label dict builds ' ' + word -- while
+            # the join below supplies its own space.  Strip, or the
+            # idiomatic caller gets "7.72  ft": a double space that renders
+            # nearly right and still splits on ' ' the way the single-spaced
+            # form did, so it would escape both eyes and tests.
+            if self.unit_label is not None:
+                unit_long = self._esc(self.unit_label.strip())
+            else:
+                unit_long = self._t('feet') if unit == 'ft' else self._t('meters')
+            # A blank label (a report whose altitude label is empty) must not
+            # leave a trailing space on every row.
+            level_fmt = '%.2f %s' if unit_long else '%.2f'
             events_display = []
             for ts, level, event_type in tides:
                 if not begin <= ts <= month_end:
@@ -598,7 +661,7 @@ class XTideGraphBuilder:
                     'ts'       : ts,
                     'eventType': self._t('High Tide') if high else self._t('Low Tide'),
                     'high'     : high,
-                    'level_str': '%.2f %s' % (level, unit_long),
+                    'level_str': level_fmt % ((level, unit_long) if unit_long else level),
                     'time_str' : datetime.datetime.fromtimestamp(ts).astimezone().strftime(time_fmt),
                 })
             return XTideGraph(self.location, unit, svgs, json.dumps(payload, separators=(',', ':')), events_display,
@@ -763,7 +826,11 @@ class XTideGraphBuilder:
         radius = {'day': 4.5, 'week': 3.5, 'month': 2.5}[name]
         # The leading zero is stripped only from 12-hour times ("9:16 AM");
         # a 24-hour "09:16" keeps it, including via a translated format.
-        marker_fmt = self._raw('%I:%M %p') if use_12_hour_labels() else self._raw('%H:%M')
+        # This net works here because the time starts the string.  The event
+        # ROW cannot use it -- its hour sits mid-string, after the date -- so
+        # that format asks for %-I directly, and TestI18n's oracle is what
+        # keeps a translator from putting a padded %I into a dated format.
+        marker_fmt = self._raw('%I:%M %p') if self.hour12 else self._raw('%H:%M')
         for ts, level, event_type in tides:
             high = event_type == EventType.HIGH_TIDE.value
             px, py = x(ts), y(level)
@@ -798,7 +865,7 @@ class XTideGraphBuilder:
     def time_ticks(self, name: str, t0: int, t1: int) -> List[Tuple[float, str]]:
         ticks: List[Tuple[float, str]] = []
         if name == 'day':
-            hour_fmt = self._raw('%I %p') if use_12_hour_labels() else self._raw('%H')
+            hour_fmt = self._raw('%I %p') if self.hour12 else self._raw('%H')
             t: float = t0
             while t <= t1:
                 dt = datetime.datetime.fromtimestamp(t).astimezone()
@@ -810,12 +877,12 @@ class XTideGraphBuilder:
                 ticks.append((t, label))
                 t += 6 * 3600
         elif name == 'week':
-            fmt = self._raw('%a %d')
+            fmt = self._raw('%a %-d')
             for k in range(8):
                 t = t0 + k * 86400
                 ticks.append((t, datetime.datetime.fromtimestamp(t).astimezone().strftime(fmt)))
         else:
-            fmt = self._raw('%b %d')
+            fmt = self._raw('%b %-d')
             for k in range(0, 31, 5):
                 t = t0 + k * 86400
                 ticks.append((t, datetime.datetime.fromtimestamp(t).astimezone().strftime(fmt)))
@@ -843,17 +910,30 @@ class XTideVariables(SearchList):
             return ' ' + (val if isinstance(val, str) else key)
         self.level_unit_label_dict = {'foot': label('feet'), 'meter': label('meters')}
 
-        self._graph: Optional[XTideGraph] = None
-        self._graph_built = False
+        # Keyed by the caller's presentation arguments: a page may embed the
+        # graph twice with different typography, and running tide is not free.
+        self._graphs: Dict[Any, Optional[XTideGraph]] = {}
 
     def get_extension_list(self, timespan, db_lookup) -> List[Dict[str, 'XTideVariables']]:
         return [{'xtide': self}]
 
-    def graph(self) -> Optional[XTideGraph]:
-        """The sample skin's tide graph, built once per report generation.
-        Returns None (and the skin shows a hint) if tide could not be run."""
-        if not self._graph_built:
-            self._graph_built = True
+    def graph(self, clock: Any = None, unit_label: Optional[str] = None) -> Optional[XTideGraph]:
+        """The sample skin's tide graph, built once per distinct set of
+        arguments per report generation.  Returns None (and the skin shows a
+        hint) if tide could not be run.
+
+        clock and unit_label are the CALLER's presentation choices, for a skin
+        that embeds this graph in a page with typography of its own.  Pass
+        clock=12 or clock=24 to state the page's clock instead of following
+        the weewxd process locale; it drives the event rows, the graph's own
+        labels and the tooltip alike.  Pass unit_label to replace the
+        spelled-out 'feet'/'meters' in each row's level_str -- give it
+        $unit.label.altitude and the label comes from the report's own
+        formatter, so the page states the decision once, where WeeWX already
+        keeps it.  Omit both and nothing changes."""
+        key = (repr(clock), repr(unit_label))
+        if key not in self._graphs:
+            self._graphs[key] = None
             xtide_dict = self.generator.config_dict.get('XTide', {})
             location = config_location(xtide_dict)
             prog = xtide_dict.get('prog', '/usr/bin/tide')
@@ -864,9 +944,10 @@ class XTideVariables(SearchList):
                 # over skin.conf by WeeWX; the builder translates the
                 # strings it composes server-side.
                 texts = self.generator.skin_dict.get('Texts', {})
-                self._graph = XTideGraphBuilder(prog, location, texts,
-                                                tide_units(self.generator.converter)).build()
-        return self._graph
+                self._graphs[key] = XTideGraphBuilder(
+                    prog, location, texts, tide_units(self.generator.converter),
+                    clock, unit_label).build()
+        return self._graphs[key]
 
     def events(self, max_events: Optional[int] = None) -> List[Dict[str, Any]]:
         """Returns tidal events."""

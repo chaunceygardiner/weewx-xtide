@@ -59,6 +59,40 @@ program could not be run (guard for that and render a hint); otherwise:
 | `$g.events` | Display rows for the tide table: `ts`, `eventType` (translated), `high` (true for a high tide), `level_str`, `time_str` |
 | `$g.credit` | Where the station's harmonic data come from, as the harmonics file credits it (its Credit, else its Source), ready for markup; empty if the file names neither |
 
+### The page's typography: `clock` and `unit_label`
+
+`$xtide.graph()` takes two optional arguments, for a skin embedding the
+graph in a page with typography of its own.  Both default to what the
+sample report has always done, so `$xtide.graph()` with no arguments is
+unchanged.
+
+| Argument | What it does |
+|---|---|
+| `clock` | `12` or `24`: the page's clock.  Omitted, the clock follows the locale WeeWX runs under |
+| `unit_label` | The unit written after each level in `level_str`: `ft` in place of the spelled-out `feet` |
+
+`clock` settles every time the graph writes, in one place: each event row's
+`time_str`, the labels on the 2-day view, that view's hour axis, and the
+tooltip `xtide.js` draws in the browser.  The tooltip is the one worth
+knowing about, because it is the easiest to miss: it formats through the
+browser's `Intl`, so it follows each *visitor's* locale, and a reader whose
+browser is 24-hour can be shown a 24-hour tooltip over a 12-hour table.
+Stating `clock` settles all four together.
+
+`unit_label` replaces the word and nothing else.  `$g.unit` and the
+payload's unit stay `ft` or `m`, because skins print those directly.  WeeWX
+unit labels carry a leading space by convention (`$unit.label.altitude` is
+`' ft'`) and the label is joined with its own single space, so `' ft'` and
+`'ft'` both render `7.72 ft`.
+
+Taking the label from the report's own formatter keeps a page's units in
+one place:
+
+    #set $g = $xtide.graph(clock=12, unit_label=$unit.label.altitude)
+
+A `clock` that is neither 12 nor 24 is logged and ignored, falling back to
+the locale: a typo in `skin.conf` costs a log line, never the page.
+
 The sample skin's `index.html.tmpl` is the reference consumer: it embeds
 the three SVGs, emits `<script>var XTIDE_DATA = $g.json;</script>`, and
 loads `xtide.js` (the tabs, the tooltip and the "now" line) and

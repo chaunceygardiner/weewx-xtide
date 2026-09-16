@@ -1,3 +1,34 @@
+3.2 09/15/2026
+--------------
+ACTION REQUIRED, and only if you translated the skin yourself or
+    overrode its date formats in [Texts]: the four strftime keys the tide
+    page uses changed spelling.  "%a, %b %d, %Y %I:%M %p" is now
+    "%a, %b %-d, %-I:%M %p", "%a, %b %d, %Y %H:%M" is now
+    "%a, %b %-d, %H:%M", "%a %d" is now "%a %-d", and "%b %d" is now
+    "%b %-d".  An entry still keyed on an old spelling is ignored in
+    silence, leaving that string in English or in the shipped default;
+    re-key it.  The nine languages that ship with the skin are already
+    updated, so an ordinary install needs nothing.
+$xtide.graph() now takes the embedding page's typography from the skin
+    that calls it, instead of deciding it here.  clock=12 or clock=24
+    states the page's clock, and unit_label= replaces the spelled-out
+    "feet"/"meters" after each level with a short label such as "ft" --
+    pass $unit.label.altitude and it comes from the report's own
+    formatter.  Both are optional and the sample report passes neither,
+    so a skin that does nothing sees no change.  A clock that is neither
+    12 nor 24 is logged and ignored rather than costing you the page.
+The tide table no longer prints the year on every row, and no longer
+    zero-pads the hour: "Mon, Sep 14, 3:06 PM" where it used to read
+    "Mon, Sep 14, 2026 03:06 PM".  Every row of a table spanning 30 days
+    carried the same year, and the page had been writing "3:06 PM" on the
+    graph and "03:06 PM" in the table beneath it for the same moment.
+    The graph's 7-day and 30-day axes lose the same padding, so a
+    single-digit day now reads "Sep 4" throughout.
+Fix: the graph's tooltip followed each VISITOR's browser locale rather
+    than the page's own clock, so a reader whose browser is 24-hour could
+    be shown a 24-hour tooltip above a 12-hour table.  It now follows the
+    same clock as everything around it.
+
 3.1 09/14/2026
 --------------
 The tide icons are gone, and with them the icon key of $xtide.graph()'s

@@ -352,6 +352,30 @@ class TestGraphBuilder:
         assert labels and all('paint-order="stroke"' in t for t in labels)
         assert 'paint-order' not in re.sub(r'/\*.*?\*/', '', open(CSS_PATH).read(), flags=re.S)
 
+    def test_event_rows_and_axes_are_unpadded_and_yearless(self, make_tide, monkeypatch):
+        """3.2's default: no year on a row of a 30-day table, and no
+        zero-padded day or 12-hour hour anywhere.  Before the sweep the same
+        page wrote "3:06 PM" on the graph (the SVG path lstrips the zero) and
+        "Mon, Sep 14, 2026 03:06 PM" in the table beneath it, for the same
+        instant -- one rule applied at one site and not the other."""
+        monkeypatch.setattr(xtide, 'use_12_hour_labels', lambda: True)
+        g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC).build()
+        assert g is not None
+        for ev in g.events:
+            assert re.fullmatch(r'[A-Za-z]{3}, [A-Za-z]{3} [1-9]\d?, [1-9]\d?:\d{2} [AP]M',
+                                ev['time_str']), ev['time_str']
+        monkeypatch.setattr(xtide, 'use_12_hour_labels', lambda: False)
+        g24 = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC).build()
+        assert g24 is not None
+        for ev in g24.events:
+            # The 24-hour clock keeps its pad; only the day loses one.
+            assert re.fullmatch(r'[A-Za-z]{3}, [A-Za-z]{3} [1-9]\d?, \d{2}:\d{2}',
+                                ev['time_str']), ev['time_str']
+        # The axes the table sits under, swept in the same pass.
+        for svg in (g.svg_week, g.svg_month):
+            for label in re.findall(r'<text class="xg-lab xg-xlab"[^>]*>([^<]+)</text>', svg):
+                assert re.fullmatch(r'[A-Za-z]{3} [1-9]\d?', label), label
+
     def test_build_fails_gracefully(self, make_tide):
         prog = make_tide(canned(stderr=STATION_NOT_FOUND_STDERR, rc=0))
         assert xtide.XTideGraphBuilder(prog, LOC).build() is None
@@ -486,6 +510,148 @@ class TestLocaleRobustness:
             assert re.search(r'\d{2}:\d{2}$', ev['time_str'])
         assert 'AM' not in g.svg_day and 'PM' not in g.svg_day
         assert '>06<' in g.svg_day         # axis hour label, leading zero kept
+
+
+class TestPresentationParams:
+    """graph(clock=, unit_label=): the embedding page's typography.
+
+    The parameter names the DECISION the caller made ("this page is
+    12-hour"), not a rendering of it, because one clock decision fans out
+    into five renderings that want five different shapes: the event row's
+    full date and time, the SVG event labels' time of day, the day-view
+    axis's bare hour, and -- in the json payload -- xtide.js's tooltip,
+    which formats through Intl and cannot be handed a strftime string at
+    any price.  Each test below pins the decision reaching all of them.
+    """
+
+    def build(self, make_tide, **kw):
+        g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC, **kw).build()
+        assert g is not None
+        return g
+
+    # ── the default is what it always was (no drift to a caller's taste) ──
+
+    def test_default_defers_to_the_process_locale(self, make_tide, monkeypatch):
+        for locale_is_12 in (True, False):
+            monkeypatch.setattr(xtide, 'use_12_hour_labels', lambda v=locale_is_12: v)
+            assert json.loads(self.build(make_tide).json)['hour12'] is locale_is_12
+
+    def test_no_arguments_renders_what_an_explicit_clock_does(self, make_tide, monkeypatch):
+        # The sample skin passes nothing; its bytes must not move because the
+        # parameters now exist.
+        monkeypatch.setattr(xtide, 'use_12_hour_labels', lambda: True)
+        plain = self.build(make_tide)
+        explicit = self.build(make_tide, clock=12)
+        assert plain.svg_day == explicit.svg_day
+        assert plain.events == explicit.events
+        assert plain.events[0]['level_str'].endswith(' feet')   # still spelled out
+
+    # ── clock reaches all five sites ──
+
+    @pytest.mark.parametrize('clock,hour12', [(12, True), (24, False),
+                                              ('12', True), ('24', False)])
+    def test_clock_overrides_the_locale_everywhere(self, make_tide, monkeypatch, clock, hour12):
+        # Pin the locale to the OPPOSITE of what is asked for, so any site
+        # still reading use_12_hour_labels() fails here.
+        monkeypatch.setattr(xtide, 'use_12_hour_labels', lambda: not hour12)
+        g = self.build(make_tide, clock=clock)
+        assert json.loads(g.json)['hour12'] is hour12            # xtide.js's tooltip
+        if hour12:
+            assert all(ev['time_str'].endswith((' AM', ' PM')) for ev in g.events)
+            assert re.search(r'\d{1,2}:\d{2} [AP]M</text>', g.svg_day)   # event labels
+            assert '>6 AM<' in g.svg_day                                 # axis hours
+        else:
+            assert all(re.search(r'\d{2}:\d{2}$', ev['time_str']) for ev in g.events)
+            assert 'AM' not in g.svg_day and 'PM' not in g.svg_day
+            assert '>06<' in g.svg_day
+
+    def test_the_payload_clock_is_what_was_RENDERED_not_what_was_asked(self, make_tide, monkeypatch):
+        """The decision passes through [Texts] on its way to the page, and
+        every shipped translation maps the 12-hour keys to 24-hour forms.  So
+        a 12-hour decision on a Danish report renders a 24-HOUR page, and a
+        payload carrying the intent instead of the result would put the
+        tooltip back out of step with the table -- the very defect clock=
+        exists to prevent.  Both routes to a 12-hour decision are pinned: the
+        process locale, and an explicit clock=12 from a skin."""
+        da = lang_texts('da')
+        monkeypatch.setattr(xtide, 'use_12_hour_labels', lambda: True)
+        for kw in ({}, {'clock': 12}):
+            g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC, da, **kw).build()
+            assert g is not None
+            assert json.loads(g.json)['hour12'] is False, kw
+            # ...and the page really did render 24-hour, so the payload agrees
+            # with what a reader sees rather than with what was asked for.
+            assert all(re.search(r'\d{2}:\d{2}$', ev['time_str']) for ev in g.events), kw
+        # English is unaffected: there the decision and the rendering agree.
+        g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC, clock=12).build()
+        assert json.loads(g.json)['hour12'] is True
+
+    def test_a_bad_clock_logs_and_keeps_the_page(self, make_tide, monkeypatch, caplog):
+        # A typo in someone's skin.conf must not cost a station its tides.
+        monkeypatch.setattr(xtide, 'use_12_hour_labels', lambda: True)
+        with caplog.at_level(logging.ERROR):
+            g = self.build(make_tide, clock='12h')
+        assert 'clock must be 12 or 24' in caplog.text and '12h' in caplog.text
+        assert json.loads(g.json)['hour12'] is True      # fell back, did not blank
+
+    # ── unit_label replaces the word, and only the word ──
+
+    def test_unit_label_replaces_the_spelled_out_unit(self, make_tide):
+        g = self.build(make_tide, unit_label='ft')
+        assert all(re.fullmatch(r'-?\d+\.\d{2} ft', ev['level_str']) for ev in g.events)
+
+    def test_unit_label_strips_the_weewx_leading_space(self, make_tide):
+        # $unit.label.altitude is ' ft': WeeWX labels carry a leading space by
+        # convention, and this extension's own label dict builds ' ' + word.
+        # The join supplies its own space, so a verbatim label would render
+        # "7.72  ft" -- which looks nearly right AND still splits on ' ' the
+        # way the single-spaced form did, so it would escape eyes and tests
+        # alike.  The idiomatic value is the one every caller will pass.
+        for label in (' ft', 'ft', ' ft ', '  ft  '):
+            g = self.build(make_tide, unit_label=label)
+            assert '  ' not in g.events[0]['level_str']
+            assert g.events[0]['level_str'].endswith(' ft')
+
+    def test_an_empty_unit_label_leaves_no_trailing_space(self, make_tide):
+        # A report whose altitude label is blank would otherwise put "7.72 "
+        # on every row -- invisible in a browser, wrong in the string.
+        for label in ('', '   '):
+            g = self.build(make_tide, unit_label=label)
+            assert re.fullmatch(r'-?\d+\.\d{2}', g.events[0]['level_str']), g.events[0]['level_str']
+
+    def test_unit_label_never_touches_the_unit_token(self, make_tide):
+        # $g.unit and payload.unit are DATA -- read out of tide's own output,
+        # keying the SVG's unit reminder and xtide.js's tooltip, and printed
+        # deliberately by consumers.  A presentation label must not reach them.
+        g = self.build(make_tide, unit_label=' furlongs')
+        assert g.unit == 'ft'
+        assert json.loads(g.json)['unit'] == 'ft'
+        assert 'Tide (ft)' in g.svg_day
+
+    def test_unit_label_is_escaped_like_a_translation(self, make_tide):
+        g = self.build(make_tide, unit_label='<ft>')
+        assert g.events[0]['level_str'].endswith(' &lt;ft&gt;')
+
+    def test_default_unit_label_is_still_translated(self, make_tide):
+        g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC, {'feet': 'Fuss'}).build()
+        assert g is not None
+        assert g.events[0]['level_str'].endswith(' Fuss')
+
+    # ── the tag itself ──
+
+    def test_searchlist_graph_passes_arguments_through_and_caches_per_set(self, make_tide):
+        variables = TestUnits.variables(TestUnits.converter('foot'),
+                                        prog=make_tide(SIMULATOR))
+        twelve = variables.graph(clock=12, unit_label=' ft')
+        twentyfour = variables.graph(clock=24)
+        assert json.loads(twelve.json)['hour12'] is True
+        assert json.loads(twentyfour.json)['hour12'] is False
+        assert twelve.events[0]['level_str'].endswith(' ft')
+        assert twentyfour.events[0]['level_str'].endswith(' feet')
+        # Cached per argument set: tide is not free, and a page may embed the
+        # graph twice with different typography.
+        assert variables.graph(clock=12, unit_label=' ft') is twelve
+        assert variables.graph(clock=24) is twentyfour
 
 
 class TestSampleTemplate:
@@ -750,6 +916,28 @@ class TestI18n:
                 assert (set(re.findall(r'\{(\w+)\}', key))
                         == set(re.findall(r'\{(\w+)\}', val))), \
                     '%s.conf placeholder mismatch for %r' % (code, key)
+
+    def test_no_language_pads_a_human_facing_day(self):
+        """The rule 3.2's sweep applied as a class, pinned so it cannot creep
+        back in through any language: a day a reader sees is never
+        zero-padded.  Eight of the nine translations already wrote %-d before
+        the sweep -- English was the outlier -- and a translator reaching for
+        %d would reintroduce "Sep 04" on that language's page alone.
+        ('%d' is not a substring of '%-d', so this reads exactly as meant.)"""
+        for code in LANG_CODES:
+            for key, val in lang_texts(code).items():
+                if not key.startswith('%'):
+                    continue
+                assert '%d' not in key, '%s.conf key pads the day: %r' % (code, key)
+                assert '%d' not in val, '%s.conf pads the day: %r' % (code, val)
+                # A DATED format (one carrying a month or a day) puts its
+                # hour mid-string, where build_view_svg's lstrip('0') net
+                # cannot reach it.  Such a format must ask for %-I, never a
+                # padded %I -- the bare '%I:%M %p' marker key is fine,
+                # because there the time starts the string and is stripped.
+                if '%b' in val or '%-d' in val:
+                    assert '%I' not in val or '%-I' in val, \
+                        '%s.conf pads the hour in a dated format: %r' % (code, val)
 
     def test_translated_date_formats_are_valid_strftime(self):
         when = datetime.datetime(2026, 8, 6, 9, 16)
@@ -1078,8 +1266,7 @@ class TestUnquotedLocation:
         generator.converter = weewx.units.Converter()
         variables = xtide.XTideVariables.__new__(xtide.XTideVariables)
         variables.generator = generator
-        variables._graph = None
-        variables._graph_built = False
+        variables._graphs = {}
         graph = variables.graph()
         assert graph is not None, 'tide was never run: location was not a string'
         assert 'unquoted' not in caplog.text, 'the report path must not log'

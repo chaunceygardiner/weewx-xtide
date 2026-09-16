@@ -26,6 +26,11 @@
     var opts = { hour: 'numeric', minute: '2-digit', weekday: 'short' };
     if (view !== 'day') { opts.month = 'short'; opts.day = 'numeric'; }
     if (data.tz) { opts.timeZone = data.tz; }
+    /* The page's clock, when the skin stated one via graph(clock=...).
+       Without it Intl follows the VISITOR's locale, so a tooltip could read
+       24-hour over a 12-hour table.  An older payload has no hour12 and
+       keeps that locale-driven behavior. */
+    if (typeof data.hour12 === 'boolean') { opts.hour12 = data.hour12; }
     return new Intl.DateTimeFormat(undefined, opts).format(new Date(ts * 1000));
   }
 
