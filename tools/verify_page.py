@@ -35,6 +35,21 @@ page's own XTIDE_DATA payload and table rows:
   - on a translated page, the direction word is the translation and the
     countdown is not English
 
+and then, at 390 px and 320 px of viewport, against the phone drawing the
+stylesheet swaps in there (3.3):
+
+  - the narrow drawing is the one shown, and the wide one is not
+  - every label on it clears 11 px ON THE GLASS -- the floor these pages
+    hold to, and the whole reason the second drawing exists
+  - no two time labels overlap, and nothing is clipped by the frame.  This
+    is the live oracle for the measured widths tests/test_xtide.py pins:
+    those are numbers in a file, these are the glyphs the reader gets
+  - clicking a tide marker reads out THAT TIDE.  The two drawings have
+    different margins and plot widths, so javascript that measured a tap on
+    the narrow drawing against the wide one's geometry would land on
+    another instant entirely -- and the tooltip, being perfectly legible,
+    would not look wrong
+
 Not collected by pytest: Playwright is not a test-suite requirement.  Run it
 before a release.  Render the report into a scratch HTML_ROOT first (one per
 language to be checked) with `weectl report run XTideReport --config ...`,
@@ -42,6 +57,10 @@ then, with a python that has Playwright:
 
     python tools/verify_page.py <html_root> [<html_root> ...] \\
         [--browser chromium|firefox|all] [--shots <dir>]
+
+The phone checks run in the same page as the rest, by resizing the viewport
+rather than opening a second browser: the drawing that shows is a media
+query's doing, and it re-evaluates on a resize with no reload.
 
 The browser builds live in ~/.cache/ms-playwright and are shared by every
 project on the machine.  Exit status is 0 only if every check passed.
@@ -94,6 +113,127 @@ def level_at(views, t):
         f = x - k
         return samples[k] * (1 - f) + samples[k + 1] * f
     return None
+
+
+# The drawing the reader can see, and where every label on it landed, in
+# SCREEN pixels: the geometry as rendered, not as computed.  fontSize on an
+# SVG text node is in viewBox units, so scaling it by the frame's own
+# displayed width is what turns it into pixels on the glass.
+READ_DRAWING = """(view) => {
+  const wrap = document.getElementById('xg-wrap-' + view);
+  const svgs = [...wrap.querySelectorAll('svg.xg')];
+  const shown = svgs.find(s => s.getBoundingClientRect().width > 0);
+  if (!shown) { return null; }
+  const r = shown.getBoundingClientRect();
+  const scale = r.width / shown.viewBox.baseVal.width;
+  return {
+    narrow: shown.classList.contains('xg-narrow'),
+    hidden: svgs.length - 1,
+    width: r.width, height: r.height,
+    labels: [...shown.querySelectorAll('.xg-lab')].map(e => {
+      const b = e.getBoundingClientRect();
+      return {
+        cls: e.getAttribute('class'), text: e.textContent,
+        px: parseFloat(getComputedStyle(e).fontSize) * scale,
+        left: b.left - r.left, right: b.right - r.left,
+        top: b.top - r.top, bottom: b.bottom - r.top,
+      };
+    }),
+  };
+}"""
+
+# 11 px of text on the glass; below this the labels are there but not
+# readable, which is what the wide drawing did on a phone before 3.3.
+TYPE_FLOOR_PX = 11.0
+
+
+def check_drawing(page, view, expect, narrow):
+    """Every label on the drawing now showing for view: big enough to read,
+    clear of its neighbors, and inside the frame."""
+    drawing = page.evaluate(READ_DRAWING, view)
+    where = '%s, %s' % (view, 'narrow' if narrow else 'wide')
+    if drawing is None:
+        expect(False, '%s: no drawing is visible' % where)
+        return
+    expect(drawing['narrow'] is narrow,
+           '%s: the %s drawing is the one shown' % (where, 'narrow' if narrow else 'wide'))
+
+    if not drawing['labels']:
+        expect(False, '%s: the drawing carries no labels at all' % where)
+        return
+    smallest = min(drawing['labels'], key=lambda lab: lab['px'])
+    expect(smallest['px'] >= TYPE_FLOOR_PX,
+           '%s: every label clears %.0f px on the glass (smallest %r at %.1f px)'
+           % (where, TYPE_FLOOR_PX, smallest['text'], smallest['px']))
+
+    # Time labels, left to right: none may run into the next.  Event labels
+    # are excluded -- two tides close together may legitimately crowd, and
+    # the suite checks those against their markers instead.
+    xlabs = sorted((lab for lab in drawing['labels'] if 'xg-xlab' in lab['cls']),
+                   key=lambda lab: lab['left'])
+    worst = None
+    for a, b in zip(xlabs, xlabs[1:]):
+        gap = b['left'] - a['right']
+        if worst is None or gap < worst[0]:
+            worst = (gap, a['text'], b['text'])
+    expect(worst is None or worst[0] >= 0,
+           '%s: no two of the %d time labels overlap (closest %r/%r, %.1f px apart)'
+           % ((where, len(xlabs)) + (worst[1:] + (worst[0],) if worst else ('', '', 0))))
+
+    clipped = [lab['text'] for lab in drawing['labels']
+               if lab['left'] < 0 or lab['right'] > drawing['width']
+               or lab['top'] < 0 or lab['bottom'] > drawing['height']]
+    expect(not clipped, '%s: no label is clipped by the frame (%s)' % (where, ', '.join(clipped)))
+
+
+def check_tooltip_hour(page, data, view, expect, narrow):
+    """Click a tide marker AS DRAWN and check the tooltip names THAT tide.
+
+    The expected reading is worked out from the payload's own event list and
+    formatted by the page, so what is under test is the one thing in
+    between: the mapping from a place on this drawing back to an instant.
+    Measured against the other frame's margins and plot width it lands
+    elsewhere, misses the snap, and reads out an hour nobody pointed at."""
+    where = '%s, %s' % (view, 'narrow' if narrow else 'wide')
+    v = data['views'][view]
+    highs = [ev for ev in data['events'] if v['t0'] <= ev[0] <= v['t1'] and ev[2] == 1]
+    if not highs:
+        expect(False, '%s: no high tide to point at' % where)
+        return
+    want = highs[len(highs) // 2]          # mid-window, clear of the clamps
+    marker = page.query_selector_all('#xg-wrap-%s svg%s circle.xg-hi'
+                                     % (view, '.xg-narrow' if narrow else ':not(.xg-narrow)'))
+    if len(marker) != len(highs):
+        expect(False, '%s: %d high markers drawn for %d high tides'
+                      % (where, len(marker), len(highs)))
+        return
+    box = marker[len(highs) // 2].bounding_box()
+    page.mouse.click(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
+    tip = page.evaluate("v => document.getElementById('xg-tip-' + v).textContent", view)
+    opts = {'hour': 'numeric', 'minute': '2-digit', 'weekday': 'short'}
+    if view != 'day':
+        opts.update({'month': 'short', 'day': 'numeric'})
+    if data.get('tz'):
+        opts['timeZone'] = data['tz']
+    if isinstance(data.get('hour12'), bool):
+        opts['hour12'] = data['hour12']
+    reading = page.evaluate("([ts, o]) => new Intl.DateTimeFormat(undefined, o)"
+                            ".format(new Date(ts * 1000))", [want[0], opts])
+    expect(reading in tip and ('%.2f' % want[1]) in tip,
+           '%s: clicking the high tide drawn at %s reads it out (tooltip %r)'
+           % (where, reading, tip))
+    # AND THE CURSOR SITS ON THE MARKER.  The reading alone can survive a
+    # wrong frame: the snap radius is scaled by the same bad number, and an
+    # inflated one still finds the right event where they are far apart.
+    # Where the cursor is drawn cannot survive it, because that is the
+    # frame's own arithmetic put back on the frame's own canvas.
+    cursor = page.query_selector('#xg-wrap-%s svg%s .xg-cursor'
+                                 % (view, '.xg-narrow' if narrow else ':not(.xg-narrow)'))
+    spot = cursor.bounding_box() if cursor else None
+    off = (abs(spot['x'] + spot['width'] / 2 - box['x'] - box['width'] / 2)
+           if spot else float('inf'))
+    expect(off <= 2.0, '%s: the cursor lands on that marker (%.1f px away)' % (where, off))
+    page.mouse.move(0, 0)
 
 
 READ_CARD = """() => {
@@ -182,9 +322,35 @@ def check_page(pw, engine, scheme, root, shots, failures):
         expect(tip == 'block', 'pointing at the graph shows the tooltip')
         page.mouse.move(0, 0)
 
+        for view in ('day', 'week', 'month'):
+            page.click('.xg-tab[data-view="%s"]' % view)
+            check_drawing(page, view, expect, narrow=False)
+            check_tooltip_hour(page, data, view, expect, narrow=False)
+        page.click('.xg-tab[data-view="day"]')
+
         if shots:
             os.makedirs(shots, exist_ok=True)
             page.screenshot(path=os.path.join(shots, '%s.png' % tag.replace(' ', '-')), full_page=True)
+
+        # THE PHONE, in this same page: the drawing that shows is a media
+        # query's doing and re-evaluates on a resize, so no reload and no
+        # second browser is needed.  320 first because it is the tight one
+        # -- the least glass the graph is ever given.
+        for width in (320, 390):
+            page.set_viewport_size({'width': width, 'height': 844})
+            for view in ('day', 'week', 'month'):
+                page.click('.xg-tab[data-view="%s"]' % view)
+                check_drawing(page, view, lambda ok, what: expect(ok, '%d px: %s' % (width, what)),
+                              narrow=True)
+                check_tooltip_hour(page, data, view,
+                                   lambda ok, what: expect(ok, '%d px: %s' % (width, what)),
+                                   narrow=True)
+            page.click('.xg-tab[data-view="day"]')
+            if shots:
+                page.screenshot(path=os.path.join(shots, '%s-%dpx.png'
+                                                  % (tag.replace(' ', '-'), width)),
+                                full_page=True)
+        page.set_viewport_size({'width': 1280, 'height': 900})
 
         if len(later) >= 2:
             # Run the page's own minute timer past the next tide.

@@ -1,3 +1,73 @@
+3.3 09/20/2026
+--------------
+ACTION REQUIRED, and only if you wrote your own javascript against the
+    graph's data payload ($g.json).  Its shape changed to carry the second
+    drawing described below: the single "layout" key is now "layouts", with
+    one entry per frame, and each view's "vlo"/"vhi" are now under
+    "scales", again one entry per frame.  A skin that ships the xtide.js of
+    its own version -- which is every ordinary install, and the sample
+    report -- reads its own payload and needs nothing.
+The tide graph is now drawn twice: once at its usual size, and once in a
+    frame laid out for a phone.  An SVG's text is in viewBox units, so the
+    wide drawing shown about 330 px across on a phone rendered its labels
+    at 4 px -- there but unreadable -- and enlarging the type in the
+    stylesheet could not fix it, because the gutter and the foot the words
+    sit in did not grow with them.  The second drawing is 360 units wide,
+    so a unit is about a pixel on the glass: its labels are 16 units and
+    read 11.6 px on a 320 px screen, 14.7 px on a 390 px one.  It thins
+    what will not fit at that size -- a time label every 12 hours on the
+    2-day view, every second day on the 7-day, every tenth on the 30-day,
+    a coarser step on the level axis, and a curve carrying only the
+    vertices 300 units can resolve -- and it leaves out the 2-day view's inline
+    event labels, which the tooltip already covers.  The sample report
+    shows it below 600 px.
+The wide drawing changes in exactly one way: the last time label of
+    each view moves two units left, which stops it being clipped by the
+    frame.  %b comes from the locale WeeWX runs under, so a station running
+    under a French locale drew "mars 30" where an English one draws
+    "Sep 30", and the wider word ran past the edge -- in every release
+    before this one.  Nothing else about that drawing moved; a skin that
+    embeds only $g.svg_day and its two siblings is otherwise unaffected.
+$xtide.graph() gained $g.svg_narrow_day, $g.svg_narrow_week and
+    $g.svg_narrow_month, which return the same three views in that frame.
+    Emit both and let a media query choose between them; the narrow SVG
+    carries the class xg-narrow, and docs/tags.md shows the markup and the
+    two rules that matter.
+xtide.js now reads the frame off the drawing a pointer landed on, rather
+    than holding one geometry for the page.  This is what lets a tap on the
+    phone drawing read out the hour under the thumb: measured against the
+    wide drawing's margins and plot width it would land on another instant
+    entirely, and the tooltip -- perfectly legible -- would not look wrong.
+    It also moves the "now" line on both drawings, so a rotation that
+    switches between them needs no reload.
+Fix: the tooltip's "snap to a nearby tide" reach was 10 drawing units,
+    which is 10 px only at the size the drawing happens to be shown.  It is
+    now 10 px on the glass whatever the drawing and whatever the screen.
+Fix: the tooltip is positioned against the drawing it belongs to rather
+    than the wrapper's left edge, so it stays put in a skin that boxes each
+    drawing separately.
+Fix: the page's stylesheet and scripts are now linked with the release
+    version on them (xtide.css?v=3.3).  They keep their file names from
+    release to release, so a returning visitor's browser could serve a
+    cached copy of the previous one against the new page without checking
+    for a newer file.  Until now that cost a stale color; this release is
+    the first in which the page's layout depends on the stylesheet, so a
+    cached one would draw the wide graph and the phone graph at the same
+    time.  Nothing to do: the link changes with each release, so the
+    browser fetches the new files.
+The tide page's javascript now leaves the page alone, rather than failing,
+    if it meets a payload older than itself -- what happens when the skin
+    is newer than the installed extension.
+The README and the manual now show the tide page on a phone, alongside the
+    desktop and dark-mode screenshots.
+The test suite now carries the American English sweep the sibling
+    extensions have, over every tracked file.
+tools/verify_page.py now also drives the page at 390 px and 320 px: that
+    the phone drawing is the one shown, that every label on it clears 11 px
+    on the glass, that no two time labels overlap and none is clipped, and
+    that clicking a tide marker reads out that tide and puts the cursor on
+    it.
+
 3.2 09/15/2026
 --------------
 ACTION REQUIRED, and only if you translated the skin yourself or

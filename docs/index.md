@@ -35,6 +35,12 @@ libraries, nothing fetched at run time.
 
 ![The tide page in dark mode](https://raw.githubusercontent.com/chaunceygardiner/weewx-xtide/main/XTideSampleReport-dark.png)
 
+On a phone the graph card carries a second drawing, laid out for that width
+rather than the wide one shrunk — a chart's text scales with the chart, so the
+wide drawing's labels came out at about 4 px there:
+
+![The tide page on a phone](https://raw.githubusercontent.com/chaunceygardiner/weewx-xtide/main/XTideSampleReport-phone.png)
+
 The sample report speaks nine languages — English, Danish, Dutch, French,
 German, Italian, Norwegian, Spanish and Swedish.  One `lang` line in
 weewx.conf switches: see [Translating (i18n)](i18n.md).

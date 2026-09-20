@@ -6,9 +6,10 @@
 ## file to enforce that lang/en.conf ships exactly the keys that render.
 ##
 ## Three cards on a page -- Right now, the graph, the tide table -- after
-## weewx-liveseasons' tides page, whose class names these are, so the two
+## weewx-tempestas' tides page, whose class names these are, so the two
 ## stay one design.  The graph's tabs, tooltip and now line are xtide.js's
-## (its hooks: .xg-tab[data-view], #xg-wrap-<view>, #xg-tip-<view>,
+## (its hooks: .xg-tab[data-view], #xg-wrap-<view>, every svg.xg inside
+## one -- xg-narrow marks the phone drawing -- #xg-tip-<view>,
 ## .xg-evrow[data-ts], #xg-count, xg-hidden and xg-active).  The Right now
 ## card, the countdowns and the dimmed past rows are xtide_now.js's, whose
 ## hooks are listed at the top of that file.  Anything that depends on the
@@ -27,7 +28,17 @@
     <meta name="color-scheme" content="light dark">
     <title>$gettext("Tidal Events")</title>
     <meta name="description" content='$gettext("Tide forecasts.")'>
-    <link rel="stylesheet" href="xtide.css">
+## THE VERSION RIDES ON EVERY ASSET LINK.  These three files keep their
+## names from release to release, and WeeWX copies them under their own
+## names, so a returning visitor's browser may serve a CACHED copy against
+## freshly generated markup without revalidating.  Through 3.2 that cost a
+## stale color; since 3.3 the page's STRUCTURE depends on the stylesheet --
+## a 3.2 xtide.css has no rule hiding the phone drawing, so both graphs
+## render stacked -- and a 3.2 xtide.js throws on the new payload's shape.
+## Changing the query string each release is what makes the browser fetch
+## them again.  $Extras.version comes from skin.conf, which the release
+## checks already hold in lockstep with install.py and xtide.py.
+    <link rel="stylesheet" href="xtide.css?v=$Extras.version">
   </head>
   <body>
     <div class="fc">
@@ -80,17 +91,25 @@
             <button type="button" class="xg-tab daytab" data-view="week"><span class="dt1">$gettext("7 Days")</span><span class="dt2">$gettext("from today")</span></button>
             <button type="button" class="xg-tab daytab" data-view="month"><span class="dt1">$gettext("30 Days")</span><span class="dt2">$gettext("from today")</span></button>
           </div>
+## Each view twice: the wide drawing and the phone one, in the same
+## wrapper, with xtide.css showing whichever fits the screen.  Both are in
+## the markup because the choice is the stylesheet's and can change on a
+## rotation with no reload; xtide.js measures a tap against the drawing it
+## landed on.
           <div class="xg-area">
             <div class="xg-wrap" id="xg-wrap-day">
               $g.svg_day
+              $g.svg_narrow_day
               <div class="xg-tooltip" id="xg-tip-day"></div>
             </div>
             <div class="xg-wrap xg-hidden" id="xg-wrap-week">
               $g.svg_week
+              $g.svg_narrow_week
               <div class="xg-tooltip" id="xg-tip-week"></div>
             </div>
             <div class="xg-wrap xg-hidden" id="xg-wrap-month">
               $g.svg_month
+              $g.svg_narrow_month
               <div class="xg-tooltip" id="xg-tip-month"></div>
             </div>
           </div>
@@ -138,8 +157,8 @@
     </div>
 #if $g
     <script>var XTIDE_DATA = $g.json;</script>
-    <script src="xtide.js"></script>
-    <script src="xtide_now.js"></script>
+    <script src="xtide.js?v=$Extras.version"></script>
+    <script src="xtide_now.js?v=$Extras.version"></script>
 #end if
   </body>
 </html>

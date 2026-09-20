@@ -19,6 +19,7 @@ import importlib.util
 import io
 import json
 import logging
+import math
 import os
 import re
 import subprocess
@@ -327,8 +328,10 @@ class TestGraphBuilder:
             # t0 is a local midnight
             dt = datetime.datetime.fromtimestamp(view['t0'])
             assert (dt.hour, dt.minute) == (0, 0)
-            assert view['vlo'] < min(view['samples'])
-            assert view['vhi'] > max(view['samples'])
+            for frame in xtide.FRAMES:
+                scale = view['scales'][frame.name]
+                assert scale['vlo'] < min(view['samples'])
+                assert scale['vhi'] > max(view['samples'])
 
     def test_payload_events_and_display_list_agree(self, graph):
         assert graph.events
@@ -341,7 +344,8 @@ class TestGraphBuilder:
         assert first['level_str'].endswith(' feet')
 
     def test_svgs_have_expected_parts(self, graph):
-        for svg in (graph.svg_day, graph.svg_week, graph.svg_month):
+        for svg in (graph.svg_day, graph.svg_week, graph.svg_month,
+                    graph.svg_narrow_day, graph.svg_narrow_week, graph.svg_narrow_month):
             for cls in ('xg-curve', 'xg-night', 'xg-nowline', 'xg-frame', 'xg-hi', 'xg-lo'):
                 assert cls in svg, 'missing %s' % cls
         assert 'xg-evlab' in graph.svg_day        # labels on the day view only
@@ -433,17 +437,479 @@ class TestGraphBuilder:
         values = [0.1, 7.9] * 240                          # 2 days at 6 minutes
         tides = [(t0 + 3600, 7.9, 1), (t0 + 7200, 0.1, 2),   # at the frame
                  (t0 + 40000, 4.0, 1), (t0 + 60000, 4.0, 2)]  # mid-plot
-        svg, _, _ = builder.build_view_svg('day', t0, t0 + 2 * 86400, 360, values, tides, [], 'ft')
+        svg, _, _ = builder.build_view_svg(xtide.WIDE, 'day', t0, t0 + 2 * 86400, 360,
+                                           values, tides, [], 'ft')
         pairs = re.findall(r'<circle class="xg-(?:hi|lo)" cx="[\d.]+" cy="([\d.]+)" r="([\d.]+)"/>'
                            r'<text class="xg-lab xg-evlab" x="[\d.]+" y="([\d.]+)"[^>]*>', svg)
         assert len(pairs) == 4
-        top_edge = builder.MT
-        bottom_edge = builder.H - builder.MB
+        top_edge = xtide.WIDE.mt
+        bottom_edge = xtide.WIDE.h - xtide.WIDE.mb
         for cy, r, ly in ((float(a), float(b), float(c)) for a, b, c in pairs):
             text_top, text_bottom = ly - 9, ly + 2
             assert text_bottom < cy - r or text_top > cy + r, \
                 'label at y=%.1f covers its marker at y=%.1f' % (ly, cy)
             assert top_edge <= text_top and text_bottom <= bottom_edge
+
+
+# What the narrow frame's type actually measures, in viewBox units, in the
+# fallback sans face (DejaVu Sans) at the 16 units that frame is laid out
+# for.  MEASURED, not estimated: getComputedTextLength in Chromium 141 and
+# Firefox 151 agree to a hundredth ('Mon 14' 59.19 / 59.18, '12 PM' 48.91,
+# 'Sep 14' 55.61, '-12.5' 41.41), and the em box rises 15 above the
+# baseline and drops 4 below it.  The widest-label figures are rounded up
+# and allow for the wider letters another date lands on ('Wed 30' is 60.4
+# against 'Mon 14').
+#
+# THE TIME LABELS ARE NOT ENGLISH.  %a and %b come from the weewxd PROCESS
+# locale rather than the lang file, so the figures below are the widest
+# over every weekday and month of the locales the shipped translations
+# imply, not over English: 'mars 30' 65.75, 'sam. 27' 64.27, '12 p.\u202fm.'
+# 64.56, 'sam.' 38.81.  Sizing the clamps from English alone clipped the
+# last 30-day label on a French station.
+#
+# PAIR is the least spacing two neighbors may be centered at -- the sum of
+# their half-widths, taken over the widest pair that view can actually put
+# side by side.  On the 2-day view that is a time against a weekday, never
+# two times, because its ticks alternate.  END is the widest label the
+# first or last tick can carry, which is what the clamps must keep inside
+# the frame.  tools/verify_page.py re-measures the labels actually drawn,
+# in a real browser, and is the oracle that keeps these honest.
+NARROW_ASCENT = 15.0
+NARROW_DESCENT = 4.0
+# The same box as a fraction of the type size, rounded outward, so the
+# frames can be checked at whatever size each is drawn for: 14/15 and 15/16
+# measured, 11.2 and 3.2 at the wide frame's 12.
+ASCENT_PER_UNIT = 0.94
+DESCENT_PER_UNIT = 0.27
+# curve_points emits two vertices per bucket, plus an anchor at each end
+# when index 0 and index n-1 are not themselves bucket extremes.  ONE
+# source of truth: written a vertex tighter, the suite stays green on
+# today's tide and fails on some future day's.
+MAX_THINNED_VERTICES = 2 * (320 // 2) + 2
+
+WIDEST_NARROW_YLAB = 41.5
+# Stated at 16 units and scaled by frame.lab / 16 for any other frame:
+# advance width is linear in font size ('-12.5' is 38.81 at 15 and 41.41 at
+# 16), so one set of measurements serves both drawings.
+WIDEST_XLAB_PAIR = {'day': 52.0, 'week': 65.0, 'month': 66.0}
+WIDEST_XLAB_END = {'day': 39.0, 'week': 65.0, 'month': 66.0}
+
+
+class TestNarrowFrame:
+    """The second drawing, added in 3.3.
+
+    SVG text is in viewBox units, so the 1000-unit wide drawing shown 334 px
+    across on a phone renders its 12-unit labels at 4.0 px.  Enlarging the
+    type in the stylesheet was the old answer and it cannot work -- the
+    gutter and the foot do not grow with the words -- so the builder draws
+    every view a second time into a frame laid out for that width.  These
+    tests hold the two frames apart: the wide one frozen, the narrow one
+    legible and uncluttered.
+    """
+
+    @pytest.fixture
+    def graph(self, make_tide):
+        g = xtide.XTideGraphBuilder(make_tide(SIMULATOR), LOC).build()
+        assert g is not None
+        return g
+
+    def test_the_wide_frame_is_pinned(self):
+        """Every number of the wide drawing, pinned.  weewx-tempestas' tides
+        page restyles these SVGs and positions against this geometry, so a
+        change here is a change to a published contract and has to be a
+        deliberate act rather than a side effect of laying out the other
+        frame.
+
+        3.3 makes exactly one: xlab_pad_right 24 -> 26, which moves the last
+        time label of each view two units left and touches nothing else (an
+        element-by-element diff against the previous release changes three
+        elements in three views, all of them that label).  It fixes a clip
+        that predates 3.3 -- %b comes from the weewxd process locale, and a
+        French station's 'mars 30' reached 1000.66 in a 1000-unit frame."""
+        w = xtide.WIDE
+        assert (w.w, w.h, w.ml, w.mr, w.mt, w.mb) == (1000, 380, 56, 16, 16, 36)
+        assert (w.pw, w.ph) == (928, 328)
+        assert (w.ylab_dx, w.ylab_dy, w.xlab_dy) == (8, 4, 18)
+        assert w.xlab_pad_left == 20
+        assert w.xlab_pad_right == {'day': 26, 'week': 26, 'month': 26}
+        assert (w.unitlab_dx, w.unitlab_dy) == (8, 16)
+        assert (w.ytick_budget, w.tick_stride, w.max_vertices) == (8, 1, 0)
+        assert w.radius == {'day': 4.5, 'week': 3.5, 'month': 2.5}
+        assert w.event_labels is True
+        assert w.svg_class == 'xg'           # and no xg-narrow on it
+        assert w.cursor_r == 5
+
+    def test_the_narrow_frame_clears_the_type_floor(self):
+        """11 px on the glass is the floor these pages hold to.  A frame n
+        units wide shown p px wide renders k-unit type at k * p / n px, so
+        the frame's width is what decides whether its labels can be read --
+        checked here at the two phone widths that matter, against the space
+        a phone actually gives the graph (the card's padding taken off)."""
+        n = xtide.NARROW
+        assert n.w == 360
+        assert n.svg_class == 'xg xg-narrow'
+        # The width the sample skin's own card leaves the graph, which is
+        # narrower than the pages that embed it give: 320 and 390 px less
+        # the page's 16 px gutters and the card's 14 px padding.
+        for screen, shown in ((320, 260), (390, 330)):
+            px = n.lab * shown / n.w
+            assert px >= 11.0, 'labels are %.1f px on a %d px screen' % (px, screen)
+        # What the stylesheet used to do instead, for the record: the wide
+        # frame with the largest type its gutter could take, in that space.
+        assert 22 * 330 / xtide.WIDE.w < 11.0
+
+    def test_the_narrow_frame_has_room_for_what_it_draws(self):
+        """The gutter, the foot, the plot and the two label bands, each
+        against the type it has to hold."""
+        n = xtide.NARROW
+        box = NARROW_ASCENT + NARROW_DESCENT
+        # A level label is right-anchored ylab_dx left of the axis, so the
+        # widest one must still start inside the frame.
+        assert n.ml - n.ylab_dx - WIDEST_NARROW_YLAB >= 0
+        # The foot takes a time label's whole box, descender included.
+        assert n.mb >= n.xlab_dy + NARROW_DESCENT
+        # THE TWO BANDS DO NOT MEET.  The bottom level label and the first
+        # time label share the frame's lower left corner; separating them
+        # by depth here is what lets xlab_pad_left be 0, which in turn is
+        # what leaves the 7-day view's first two labels a full gap apart.
+        bottom_ylab_box = n.mt + n.ph + n.ylab_dy + NARROW_DESCENT
+        assert n.mt + n.ph + n.xlab_dy - NARROW_ASCENT >= bottom_ylab_box
+        # A plot deeper than a third of its width, so that the most level
+        # labels the scale can spend -- four ticks plus a pad at each end --
+        # still stand a full label-box apart.
+        assert n.ph > n.pw / 3
+        assert n.ph / (n.ytick_budget + 2) >= box
+
+    @pytest.mark.parametrize('frame', xtide.FRAMES, ids=lambda f: f.name)
+    def test_no_label_band_reaches_outside_its_frame(self, frame):
+        """Each of the four edges, for EVERY frame -- the property, not the
+        instance that found it.  The narrow frame was laid out by sizing the
+        gutter, the foot and the right-hand clamp, and its head was left at
+        the padding the wide frame happened to use; the top level label sits
+        ON the top gridline, so its box rose two units above the frame and
+        Chromium clipped it.  A rule that holds on three edges of one frame
+        is not a rule."""
+        ascent = frame.lab * ASCENT_PER_UNIT
+        descent = frame.lab * DESCENT_PER_UNIT
+        # The top level label is centered on the top gridline, at mt.
+        assert frame.mt + frame.ylab_dy - ascent >= 0, 'the top level label clips'
+        # The bottom one, and the time labels below it.
+        assert frame.mt + frame.ph + frame.ylab_dy + descent <= frame.h
+        assert frame.mt + frame.ph + frame.xlab_dy + descent <= frame.h
+        assert frame.ml - frame.ylab_dx >= 0
+        # A level label runs left from its anchor, so the anchor itself
+        # has to be inside the frame; how much room it needs beyond that is
+        # the widest-label check above.
+
+    def test_the_stylesheet_and_the_frames_agree_on_the_type_size(self):
+        """THE ONE CONTRACT THAT SPANS TWO LANGUAGES.  A frame's gutter,
+        foot, head and label clamps are all derived from the type size it is
+        laid out for, but the size itself is set in the STYLESHEET -- the
+        builder never writes a font-size.  So the number in xtide.css and
+        the frame's lab must be the same number, and nothing made them be:
+        every other layout test computes from frame.lab, so editing only the
+        stylesheet leaves the whole suite green while the labels collide and
+        clip.  Only tools/verify_page.py would catch it, and pytest does not
+        collect it.
+
+        Reading source text is right here and only here: this is a contract
+        between two copies that must agree, in the same family as the
+        no-hex-in-the-template rule, not a claim that anything works."""
+        css = re.sub(r'/\*.*?\*/', '', open(CSS_PATH).read(), flags=re.S)
+
+        def font_size(selector):
+            m = re.search(re.escape(selector) + r'\s*\{([^}]*)\}', css)
+            assert m, 'no rule for %r in xtide.css' % selector
+            decl = re.search(r'font-size\s*:\s*([^;}]+)', m.group(1))
+            assert decl, '%r sets no font-size' % selector
+            value = decl.group(1).strip()
+            # PX, NEVER A RELATIVE UNIT.  These sizes are in viewBox units:
+            # the frame's gutter, foot and clamps are laid out for exactly
+            # this number, so a rem or an em would let the reader's root
+            # font size rewrite a geometry that was measured in glyphs.
+            px = re.fullmatch(r'(\d+(?:\.\d+)?)px', value)
+            assert px, ('%r is %r; an SVG label size must be an absolute px, '
+                        'because the frame geometry is laid out for that '
+                        'number of viewBox units' % (selector, value))
+            return float(px.group(1))
+
+        # The base rule styles the wide drawing; the narrow one overrides it.
+        assert font_size('\n.xg-lab') == xtide.WIDE.lab, (
+            'xtide.css draws the wide frame at %gpx but it is laid out for %d'
+            % (font_size('\n.xg-lab'), xtide.WIDE.lab))
+        assert font_size('svg.xg-narrow .xg-lab') == xtide.NARROW.lab, (
+            'xtide.css draws the narrow frame at %gpx but it is laid out for %d'
+            % (font_size('svg.xg-narrow .xg-lab'), xtide.NARROW.lab))
+
+    def test_every_view_is_drawn_into_both_frames(self, graph):
+        wide = {'day': graph.svg_day, 'week': graph.svg_week, 'month': graph.svg_month}
+        narrow = {'day': graph.svg_narrow_day, 'week': graph.svg_narrow_week,
+                  'month': graph.svg_narrow_month}
+        for view in ('day', 'week', 'month'):
+            assert 'class="xg" data-view="%s" viewBox="0 0 1000 380"' % view in wide[view]
+            assert ('class="xg xg-narrow" data-view="%s" viewBox="0 0 360 188"' % view
+                    in narrow[view])
+
+    def test_the_narrow_frame_thins_what_will_not_fit(self, graph):
+        """Fewer time labels, and a curve with only the vertices 304 units
+        of plot can resolve.  Both are what makes the bigger type fit."""
+        pairs = ((graph.svg_day, graph.svg_narrow_day),
+                 (graph.svg_week, graph.svg_narrow_week),
+                 (graph.svg_month, graph.svg_narrow_month))
+        for wide, narrow in pairs:
+            assert (len(re.findall(r'xg-xlab', narrow))
+                    == (len(re.findall(r'xg-xlab', wide)) + 1) // 2)
+            assert narrow.count(',') < wide.count(',')
+        for svg in (graph.svg_narrow_day, graph.svg_narrow_week, graph.svg_narrow_month):
+            points = re.search(r'class="xg-curve" points="([^"]*)"', svg).group(1)
+            assert xtide.NARROW.max_vertices == 320
+            assert len(points.split(' ')) <= MAX_THINNED_VERTICES
+        # No inline event labels: there is no room, and the tooltip is a tap
+        # away.  The wide day view still has them.
+        assert 'xg-evlab' in graph.svg_day
+        assert 'xg-evlab' not in graph.svg_narrow_day
+
+    def test_thinning_keeps_every_peak_and_trough(self):
+        """THE ALIASING GUARD.  A tide is an oscillation, and the 30-day
+        view packs about 58 cycles into the vertex budget -- barely four
+        samples a cycle.  Keeping every nth sample there undersamples it:
+        the true crest of a cycle falls between the kept points, so the
+        curve is drawn short of it and the high-tide marker floats above a
+        curve that never reaches it.  That shipped in a render and was
+        caught by looking at the picture, not by a test; this is the test
+        that should have caught it.
+
+        THE PROPERTY IS PER CYCLE, and it has to be: over 58 cycles the
+        stride lands on SOME crest, so the global range and the number of
+        crests drawn are both intact under the broken algorithm and prove
+        nothing.  Measured on this input, every nth sample draws one cycle
+        0.96 ft short of its true crest, on a range of 8 ft.
+        """
+        # The simulator's own curve, at the 30-day view's own sampling: the
+        # real 12.42-hour tide period, one sample an hour for 30 days.
+        period = 12.42
+        values = [4.0 + 4.0 * math.sin(2 * math.pi * i / period) for i in range(720)]
+        kept = xtide.XTideGraphBuilder.curve_points(values, 320)
+
+        for cycle in range(int(len(values) / period)):
+            lo = int(cycle * period)
+            hi = min(int((cycle + 1) * period) + 1, len(values))
+            drawn = [v for i, v in kept if lo <= i < hi]
+            assert drawn, 'cycle %d has no vertex at all' % cycle
+            assert abs(max(drawn) - max(values[lo:hi])) < 1e-9, \
+                'cycle %d is drawn %.3f short of its crest' % (
+                    cycle, max(values[lo:hi]) - max(drawn))
+            assert abs(min(drawn) - min(values[lo:hi])) < 1e-9, \
+                'cycle %d is drawn %.3f above its trough' % (
+                    cycle, min(drawn) - min(values[lo:hi]))
+
+        # And the polyline never doubles back on itself.
+        indices = [i for i, _ in kept]
+        assert indices == sorted(indices)
+        assert len(indices) == len(set(indices))
+
+    def test_thinning_can_spend_both_end_anchors(self):
+        """The vertex bound is limit + 2, not limit + 1, and this is the
+        case that spends it: when index 0 is neither the lowest nor the
+        highest sample of its own bucket, and index n-1 likewise, BOTH end
+        anchors are inserted on top of two vertices from every bucket.
+
+        It is not hypothetical -- a search over tide-shaped series finds it
+        at a period of 12.46 hours, an ordinary one.  It is rare enough that
+        four thousand random trials missed it, which is exactly why the
+        bound was written a vertex too tight and the suite stayed green."""
+        n = 720
+        values = [4.0 + 3.0 * math.sin(2 * math.pi * i / 12.42) for i in range(4, 715)]
+        # Turning points inside the first and last buckets put both ends
+        # strictly between their neighbors.
+        values = [5.0, 3.0, 4.0, 6.0] + values + [6.0, 4.0, 3.0, 5.0, 4.5]
+        assert len(values) == n
+        kept = xtide.XTideGraphBuilder.curve_points(values, 320)
+        assert len(kept) == 322, 'expected both anchors, got %d vertices' % len(kept)
+        # The bound the render test polices has to admit this render.
+        assert len(kept) <= MAX_THINNED_VERTICES
+        assert kept[0][0] == 0 and kept[-1][0] == n - 1
+        indices = [i for i, _ in kept]
+        assert indices == sorted(indices)
+        assert len(indices) == len(set(indices))
+
+    def test_thinning_keeps_both_ends_of_the_curve(self):
+        """A curve that lost its last vertex would stop short of the frame."""
+        points = xtide.XTideGraphBuilder.curve_points
+        assert points([1.0, 2.0, 3.0], 0) == [(0, 1.0), (1, 2.0), (2, 3.0)]
+        assert points([1.0, 2.0, 3.0], 9) == [(0, 1.0), (1, 2.0), (2, 3.0)]
+        for n in (7, 100, 480, 481, 719, 720):
+            values = [float(i) for i in range(n)]
+            for limit in (0, 4, 5, 320):
+                kept = points(values, limit)
+                assert kept[0] == (0, 0.0)
+                assert kept[-1] == (n - 1, float(n - 1))
+                assert [i for i, _ in kept] == sorted(set(i for i, _ in kept))
+                if limit:
+                    # Two vertices per bucket, plus the two end anchors.
+                    assert len(kept) <= limit + 2
+
+    @pytest.mark.parametrize('frame', xtide.FRAMES, ids=lambda f: f.name)
+    def test_time_labels_neither_collide_nor_clip(self, graph, frame):
+        """BOTH FRAMES.  Adjacent labels are centered at least a whole label
+        apart and neither end runs off the frame, at the widest label any
+        SHIPPED LOCALE can put there -- %a and %b come from the weewxd
+        process locale, not the lang file.  Sizing these from English alone
+        clipped the last 30-day label on a French station: by 1.6 units on
+        the narrow frame, which 3.3 introduced, and by 0.66 on the wide one,
+        which had it all along.  tools/verify_page.py re-measures the real
+        glyphs in a browser at release."""
+        wide = {'day': graph.svg_day, 'week': graph.svg_week, 'month': graph.svg_month}
+        narrow = {'day': graph.svg_narrow_day, 'week': graph.svg_narrow_week,
+                  'month': graph.svg_narrow_month}
+        svgs = wide if frame is xtide.WIDE else narrow
+        n = frame
+        for view, svg in svgs.items():
+            scale = frame.lab / 16.0
+            pair = WIDEST_XLAB_PAIR[view] * scale
+            end = WIDEST_XLAB_END[view] * scale
+            xs = [float(x) for x in
+                  re.findall(r'<text class="xg-lab xg-xlab" x="([\d.]+)"', svg)]
+            assert len(xs) >= 4, '%s: only %d labels' % (view, len(xs))
+            assert len(set(xs)) == len(xs), '%s: two labels share an x' % view
+            for a, b in zip(xs, xs[1:]):
+                assert b - a >= pair, \
+                    '%s: neighbors %.1f units apart, the widest pair needs %.1f' % (
+                        view, b - a, pair)
+            # Neither end runs off the frame, at the widest label that end
+            # can carry in ANY shipped locale.  The first is free to sit
+            # over the level labels' gutter because it is a band below
+            # them; test_the_narrow_frame_has_room_for_what_it_draws is
+            # what holds that separation.
+            assert xs[0] - end / 2 >= 0, '%s: the first label runs off the left' % view
+            assert xs[-1] + end / 2 <= n.w, '%s: the last label runs off the right' % view
+            # And the clamp itself is sized for that label, not for English.
+            assert n.w - n.xlab_pad_right[view] + end / 2 <= n.w
+
+    def test_the_payload_carries_a_frame_for_each_drawing(self, graph):
+        """xtide.js measures a tap against the geometry of the drawing it
+        landed on, so both geometries have to reach it -- and the value
+        scale is per frame too, because a narrow frame spends fewer
+        gridlines and so rounds to a different vlo/vhi."""
+        payload = json.loads(graph.json)
+        assert set(payload['layouts']) == {'wide', 'narrow'}
+        for frame in xtide.FRAMES:
+            layout = payload['layouts'][frame.name]
+            assert layout == {'w': frame.w, 'h': frame.h, 'ml': frame.ml, 'mt': frame.mt,
+                              'pw': frame.pw, 'ph': frame.ph, 'cur': frame.cursor_r}
+        for view in payload['views'].values():
+            assert set(view['scales']) == {'wide', 'narrow'}
+            for scale in view['scales'].values():
+                assert scale['vlo'] < scale['vhi']
+        # The samples are frame-independent and are sent once, not twice.
+        assert 'samples' in payload['views']['day']
+        assert 'samples' not in payload['views']['day']['scales']['wide']
+
+    def test_a_narrow_tap_lands_on_the_hour_it_points_at(self, graph):
+        """The arithmetic xtide.js does, done here against BOTH frames: a
+        pointer at a fraction of the plot maps to that fraction of the
+        window.  Reading the narrow drawing against the wide frame's
+        numbers -- the bug this per-frame payload prevents -- puts the
+        cursor under the thumb and reads out a different hour, so the two
+        frames are required to agree on the instant and to disagree on the
+        pixel."""
+        payload = json.loads(graph.json)
+        view = payload['views']['day']
+
+        def instant_at(frame_name, fraction):
+            layout = payload['layouts'][frame_name]
+            sx = layout['ml'] + fraction * layout['pw']
+            return view['t0'] + (sx - layout['ml']) * (view['t1'] - view['t0']) / layout['pw']
+
+        for fraction in (0.0, 0.25, 0.5, 0.77, 1.0):
+            assert instant_at('wide', fraction) == instant_at('narrow', fraction)
+        # And the same fraction is a different place on the two drawings,
+        # which is why the frame has to be read off the element.
+        wide, narrow = payload['layouts']['wide'], payload['layouts']['narrow']
+        assert wide['ml'] + 0.5 * wide['pw'] != narrow['ml'] + 0.5 * narrow['pw']
+
+
+class TestSkinAssetsAndPayloadVintages:
+    """The skin's javascript and its payload are generated by DIFFERENT
+    releases whenever a station is mid-upgrade, and 3.3 changed the payload
+    shape.  Two mechanisms keep that from breaking a page, and neither was
+    here before 3.3:
+
+      - the deployed assets are refreshed on every report run, so a new
+        payload is never served to an old script; and
+      - the script bails cleanly if it meets a payload older than itself,
+        which is what happens when the skin is newer than the extension.
+
+    Both were found by driving the two vintages against each other in a
+    browser, after a page that 'degrades' was observed to die instead.
+    """
+
+    def test_every_shipped_asset_is_copied_by_the_skin(self):
+        """A stylesheet or script that install.py ships but skin.conf never
+        copies is simply absent from the rendered page.
+
+        It asserts nothing about WHICH directive, because copy_once is
+        right and was nearly changed on a false premise: "once" scopes to
+        the first report cycle of each weewxd RUN, not to "only if the file
+        is absent" -- reportengine guards the list with `if self.first_run`
+        and the copy is a bare shutil.copy, an unconditional overwrite.  So
+        a restart, which installing an extension requires, refreshes them.
+        copy_always would work too but re-sends all three to FTP and RSYNC
+        stations every cycle for ever, because deep_copy_path drops mtime.
+        """
+        conf = configobj.ConfigObj(os.path.join(REPO, 'skins', 'xtide', 'skin.conf'),
+                                   encoding='utf-8')
+        copy = conf['CopyGenerator']
+        copied = set()
+        for key in ('copy_once', 'copy_always'):
+            copied.update(f.strip()
+                          for f in weeutil.weeutil.option_as_list(copy.get(key, []))
+                          if f.strip())
+        installed = set()
+        for line in open(os.path.join(REPO, 'install.py'), encoding='utf-8'):
+            m = re.search(r"'skins/xtide/([^/']+\.(?:css|js))'", line)
+            if m:
+                installed.add(m.group(1))
+        assert installed, 'install.py ships no skin assets?'
+        assert installed <= copied, \
+            'shipped but never copied to the page: %s' % sorted(installed - copied)
+
+    def test_the_script_bails_on_a_payload_older_than_itself(self, tmp_path):
+        """RUNS the shipped xtide.js under node against a pre-3.3 payload,
+        which carries 'layout' singular and no frames.  It must return
+        without throwing and without reaching for the document: every line
+        past the frame lookup would fail, and updateNow() runs at load, so
+        an unguarded script takes the tabs and the event list down with it.
+
+        Sabotage-checked by deleting the guard, which throws
+        "Cannot read properties of undefined"."""
+        harness = tmp_path / 'run.js'
+        harness.write_text("""
+const fs = require('fs');
+let touched = false;
+global.window = { XTIDE_DATA: JSON.parse(process.argv[2]) };
+global.document = new Proxy({}, { get() { touched = true; return () => null; } });
+global.setInterval = function () {};
+let threw = null;
+try { (0, eval)(fs.readFileSync(process.argv[3], 'utf8')); }
+catch (e) { threw = String(e); }
+console.log(JSON.stringify({ threw: threw, touched: touched }));
+""")
+        # A 3.2 payload: 'layout', singular, and per-view vlo/vhi.
+        old_payload = json.dumps({
+            'unit': 'ft', 'tz': 'America/Los_Angeles', 'hour12': True,
+            'layout': {'w': 1000, 'h': 380, 'ml': 56, 'mt': 16, 'pw': 928, 'ph': 328},
+            'views': {'day': {'t0': 0, 't1': 172800, 'step': 360, 'vlo': 0, 'vhi': 8,
+                              'samples': [1.0, 2.0]}},
+            'events': [], 'T': {},
+        })
+        js = os.path.join(REPO, 'skins', 'xtide', 'xtide.js')
+        completed = subprocess.run(['node', str(harness), old_payload, js],
+                                   capture_output=True, encoding='utf-8', timeout=30)
+        assert completed.returncode == 0, completed.stderr
+        result = json.loads(completed.stdout)
+        assert result['threw'] is None, 'an old payload threw: %s' % result['threw']
+        assert not result['touched'], 'the script went on to build the page anyway'
 
 
 class TestLocaleRobustness:
@@ -654,6 +1120,13 @@ class TestPresentationParams:
         assert variables.graph(clock=24) is twentyfour
 
 
+def skin_extras():
+    """[Extras] from the shipped skin.conf, as WeeWX hands it to a template."""
+    conf = configobj.ConfigObj(os.path.join(REPO, 'skins', 'xtide', 'skin.conf'),
+                               encoding='utf-8')
+    return conf['Extras']
+
+
 class TestSampleTemplate:
     """End-to-end Cheetah render.  Compilation alone is NOT sufficient: with
     #errorCatcher Echo, failures render as un-substituted placeholders."""
@@ -669,7 +1142,8 @@ class TestSampleTemplate:
             val = texts.get(key, key)
             return val if isinstance(val, str) else key
         tmpl = Template(file=os.path.join(REPO, 'skins', 'xtide', 'index.html.tmpl'),
-                        searchList=[{'xtide': StubXTide(), 'gettext': gettext, 'lang': lang}])
+                        searchList=[{'xtide': StubXTide(), 'gettext': gettext, 'lang': lang,
+                                     'Extras': skin_extras()}])
         return str(tmpl)
 
     def test_renders_graph_page(self, make_tide):
@@ -679,13 +1153,21 @@ class TestSampleTemplate:
         assert 'id="xg-wrap-day"' in html
         assert 'id="xt-now"' in html
         assert 'var XTIDE_DATA = {' in html
-        assert '<script src="xtide.js"></script>' in html
-        assert '<script src="xtide_now.js"></script>' in html
+        # Every asset link carries the version, so a browser holding a
+        # cached copy from the previous release fetches this one instead.
+        version = skin_extras()['version']
+        for asset in ('xtide.css', 'xtide.js', 'xtide_now.js'):
+            assert '%s?v=%s' % (asset, version) in html, asset
+            assert '"%s"' % asset not in html, '%s is linked unversioned' % asset
         # Rows before the render are pre-dimmed; either way one row per event.
         assert len(re.findall(r'<div class="xg-evrow(?: past)?" data-ts="\d+">', html)) == len(g.events)
         assert html.count('class="ev-k ev-hi"') + html.count('class="ev-k ev-lo"') == len(g.events)
         assert 'Simulated harmonics &amp; tests' in html
         assert 'xtide_icons' not in html
+        # Both drawings of every view reach the page; the stylesheet picks.
+        for view in ('day', 'week', 'month'):
+            assert html.count('data-view="%s" viewBox' % view) == 2
+        assert html.count('class="xg xg-narrow"') == 3
         # The first paint names the next tide: the first event after now.
         nxt = next(ev for ev in g.events if ev['ts'] > time.time())
         assert '<span class="rel" data-ts="%d">' % nxt['ts'] in html
@@ -713,8 +1195,8 @@ class TestSampleTemplate:
 # there: text or a graphical mark.  A rule that puts a token on a new ground
 # must be added here, or this cannot see it.
 #
-# THE BAR IS THE STRICTER OF TWO MEASURES (John, 2026-09-14: the standard
-# weewx-liveseasons uses).  The WCAG 2 ratio is known to overrate some
+# THE BAR IS THE STRICTER OF TWO MEASURES (2026-09-14; the same standard
+# these skins hold elsewhere).  The WCAG 2 ratio is known to overrate some
 # pairs -- it passed this stylesheet's first dark palette, whose muted gray
 # APCA scores Lc 49 -- so text must clear WCAG 4.5 AND APCA Lc 60, large
 # text included, and marks WCAG 3.0 AND Lc 30.
@@ -764,7 +1246,7 @@ def contrast(a, b):
 def apca(text, ground):
     """APCA Lc (APCA-W3 0.0.98G-4g) of '#rrggbb' text on a '#rrggbb' ground:
     positive for dark text on a lighter ground, negative for light on dark.
-    The same constants and steps as weewx-liveseasons' tools/contrast.py, so
+    The same constants and steps as weewx-tempestas' tools/contrast.py, so
     the two skins measure alike; TestPalettes pins them to APCA's published
     fixed points."""
     def y(h):
@@ -1444,7 +1926,7 @@ class TestInstallerConfig:
         falls back to when the key is absent -- and once the installer
         stops writing it live, nothing but xtide.py governs it.
 
-        WHICH SIDE MOVES WHEN THIS FAILS IS A JUDGEMENT, NOT A FORMALITY.
+        WHICH SIDE MOVES WHEN THIS FAILS IS A JUDGMENT, NOT A FORMALITY.
         Do not make it pass by editing the assignment down to the code.
         While the option was written live, the installer's value is what
         every fresh install has actually been running and the fallback was

@@ -14,13 +14,21 @@ level, whether the tide is rising or falling, and the next high or low with a co
 The tide graph draws continuous tide levels with the high and low tides marked, tabs for
 2-day, 7-day and 30-day views, night (sunset to sunrise) shading, a "now" line, and
 click/hover anywhere on the curve to see the exact time and tide level.  The tide table
-lists the tides for the selected view, with how long until each.  The page follows the
-reader's light or dark system setting, keeps its clock-driven parts current without
-reloading, and is self-contained (no javascript libraries, nothing fetched at run time).
+lists the tides for the selected view, with how long until each.  On a phone the graph is
+replaced by a second drawing made for that width, rather than the wide one shrunk: text in
+a chart scales with the chart, and the wide drawing's labels came out at 4 pixels there.
+The page follows the reader's light or dark system setting, keeps its clock-driven parts
+current without reloading, and is self-contained (no javascript libraries, nothing fetched
+at run time).
 
 ![The tide page](XTideSampleReport.png)
 
 ![The tide page in dark mode](XTideSampleReport-dark.png)
+
+On a phone the graph card carries the second drawing, laid out for that width
+rather than the wide one shrunk:
+
+![The tide page on a phone](XTideSampleReport-phone.png)
 
 The sample report speaks nine languages: English, Danish, Dutch, French, German,
 Italian, Norwegian, Spanish and Swedish.  To pick one, set `lang` on the report's

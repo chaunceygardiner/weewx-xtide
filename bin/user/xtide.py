@@ -51,7 +51,7 @@ from weewx.cheetahgenerator import SearchList
 
 log = logging.getLogger(__name__)
 
-WEEWX_XTIDE_VERSION = "3.2"
+WEEWX_XTIDE_VERSION = "3.3"
 
 if sys.version_info[0] < 3:
     raise weewx.UnsupportedFeature(
@@ -480,16 +480,167 @@ def tide_units(converter: weewx.units.Converter) -> str:
     return {'foot': 'ft', 'meter': 'm'}.get(unit, 'x')
 
 
+class GraphFrame:
+    """One drawing's geometry: the SVG the tide graph is composed into.
+
+    THE PROBLEM THIS SOLVES.  An SVG's text is in viewBox units, so a frame
+    drawn 1000 units wide and shown 334 px wide on a phone shrinks its type
+    by the same factor: 12-unit labels land at 4.0 px on the glass, and a
+    stylesheet that answers by enlarging the type -- which is what this skin
+    did through 3.2, and what the phone block of xtide.css used to say --
+    puts big words in a gutter and a foot sized for small ones, where they
+    collide with each other and clip at the frame.  Legible phone type is
+    not a styling question: it is a second drawing, laid out for the space
+    it is shown in.  So the builder draws every view TWICE, into two frames,
+    and the page shows whichever fits.
+
+    WIDE is what this extension has always drawn, save for one deliberate
+    3.3 change noted at its definition below; it is a published contract
+    with the skins that restyle these SVGs, so none of its numbers may
+    drift by accident.  NARROW is 360 units wide, so that one unit is
+    about one pixel on a phone; its 16-unit type reads 11.6 px on a 320 px
+    screen and 14.7 px on a 390 px one, which clears the 11 px floor these
+    pages hold to.  Its gutter, foot, head and label clamps are all sized
+    from MEASURED advance widths in the fallback sans face (DejaVu Sans,
+    which Chromium and Firefox agree on to a hundredth) at that type size:
+    the widest level label, '-12.5', is 41.4 units; the widest axis label,
+    'Wed 30', is 60.4 units, so its half-width sets the right-hand clamp;
+    and the em box rises 15 above the baseline and drops 4 below it.
+
+    The fields ARE the design; nothing here is derived from anything else,
+    so a change to one frame cannot move the other.  lab is not used in the
+    drawing -- it records the type size each frame was laid out for, so the
+    stylesheet and these numbers can be checked against each other.
+    """
+
+    def __init__(self, name: str, w: int, h: int, ml: int, mr: int, mt: int, mb: int,
+                 svg_class: str, lab: int, ylab_dx: int, ylab_dy: int, xlab_dy: int,
+                 xlab_pad_left: int, xlab_pad_right: Dict[str, int], unitlab_dx: int, unitlab_dy: int,
+                 ytick_budget: int, tick_stride: int, radius: Dict[str, float],
+                 max_vertices: int, event_labels: bool, cursor_r: float):
+        self.name = name                      # 'wide' | 'narrow'
+        self.svg_class = svg_class            # the class attribute of this frame's <svg>
+        self.w = w
+        self.h = h
+        self.ml = ml                          # left margin: the level labels' gutter
+        self.mr = mr
+        self.mt = mt
+        self.mb = mb                          # bottom margin: the time labels' foot
+        self.lab = lab                        # the .xg-lab type size this frame is laid out for
+        self.ylab_dx = ylab_dx                # a level label's right edge, left of the axis
+        self.ylab_dy = ylab_dy                # its baseline, below its gridline, to center the digits
+        self.xlab_dy = xlab_dy                # a time label's baseline, below the plot
+        # A time label is centered on its gridline, so the first and last
+        # have to be pulled in far enough not to run off the frame.  The
+        # left pad does double duty in the wide frame, where it is also
+        # what keeps the first time label clear of the bottom level label
+        # in the corner they share; the narrow frame separates those two by
+        # DEPTH instead (see xlab_dy there) and so needs no left pad.
+        #
+        # The right pad is PER VIEW, because the only label it ever bites is
+        # the LAST one and that label is a different thing on each view: a
+        # bare weekday on the 2-day view (it falls on a midnight), and a
+        # '%b %-d' on the 30-day one, which is nearly twice as wide.  One
+        # pad sized for the wider of them drags the 2-day view's last label
+        # so far left that it collides with the time label before it.
+        self.xlab_pad_left = xlab_pad_left
+        self.xlab_pad_right = xlab_pad_right
+        self.unitlab_dx = unitlab_dx
+        self.unitlab_dy = unitlab_dy
+        self.ytick_budget = ytick_budget      # most gridlines choose_tick may spend
+        self.tick_stride = tick_stride        # draw every nth time tick; 1 is all of them
+        self.radius = radius                  # event marker radius, per view
+        self.max_vertices = max_vertices      # thin the curve to about this many points; 0 never thins
+        self.event_labels = event_labels      # the day view's inline event labels
+        self.cursor_r = cursor_r              # the tooltip cursor xtide.js draws, in these units
+
+    @property
+    def pw(self) -> int:
+        return self.w - self.ml - self.mr
+
+    @property
+    def ph(self) -> int:
+        return self.h - self.mt - self.mb
+
+
+# The desktop drawing.  Treat every number here as load-bearing:
+# weewx-tempestas' tides page restyles these SVGs and positions against this
+# geometry, so a change is a change to a published contract and has to be a
+# deliberate act rather than a side effect of laying out the other frame.
+# 3.3 makes exactly one such change -- xlab_pad_right 24 -> 26, which moves
+# the LAST time label of each view two units left and nothing else.  That
+# is the same locale defect the narrow frame had: %b comes from the weewxd
+# process locale, and at pad 24 a French station's 'mars 30' reached
+# 1000.66 in a 1000-unit frame.  It was here before 3.3.
+WIDE = GraphFrame(
+    name='wide', w=1000, h=380, ml=56, mr=16, mt=16, mb=36, svg_class='xg',
+    lab=12, ylab_dx=8, ylab_dy=4, xlab_dy=18, xlab_pad_left=20,
+    xlab_pad_right={'day': 26, 'week': 26, 'month': 26},
+    unitlab_dx=8, unitlab_dy=16, ytick_budget=8, tick_stride=1,
+    radius={'day': 4.5, 'week': 3.5, 'month': 2.5},
+    max_vertices=0, event_labels=True, cursor_r=5)
+
+# The phone drawing: 300 x 144 of plot inside a 360 x 188 frame, a little
+# deeper than a third of its width.  The type is 16 units, which is what
+# the 11 px floor costs at the narrowest real case -- the sample skin's own
+# card leaves the graph 260 px on a 320 px screen, where 16 units of 360
+# read 11.6 px (a 390 px screen gets 14.7).
+#
+# Everything else follows from that type size, measured in the fallback
+# sans face: the gutter takes '-12.5' (41.4 units) with its gap to the
+# axis; the foot takes a label's whole box, which rises 15 above the
+# baseline and drops 4 below it; the head takes the part of the TOP level
+# label's box that rises above its gridline, which is why mt is 12 and not
+# the 8 that nothing else needed; and the level labels get a band of their
+# own, because xlab_dy 25 puts a time label's box below the bottom level
+# label's.  That band is what lets xlab_pad_left be 0.  Pushing the first
+# time label right to clear the gutter instead -- which is the wide
+# frame's answer -- costs that label a quarter of its gap to the next one,
+# and at this type size there is none to spare.
+#
+# The time ticks are halved (12 hours on the 2-day view, every second day
+# name on 7 days, every tenth on 30): 'Mon 14' is 59.2 units at 16 and the
+# undivided spacing on the 7-day view is 43.  The day view's inline event
+# labels are not drawn at all -- there is no room, and the tooltip is a
+# tap away.
+#
+# THE LABELS ARE NOT ENGLISH.  %a and %b come from the weewxd PROCESS
+# locale, not from the lang file, so a station running under fr_FR draws
+# 'mars 30' and 'sam. 27' where an English one draws 'Sep 30' and 'Sat 27'.
+# Measured across the locales the shipped translations imply, the widest
+# are 'mars 30' at 65.8 units and, on the 2-day view whose last label is
+# always a midnight weekday, 'sam.' at 38.8 -- which is why the right pads
+# are 34 and 21.  Sizing them from English alone clipped the last 30-day
+# label on a French station by 1.6 units.
+NARROW = GraphFrame(
+    name='narrow', w=360, h=188, ml=50, mr=10, mt=12, mb=32, svg_class='xg xg-narrow',
+    lab=16, ylab_dx=6, ylab_dy=5, xlab_dy=25, xlab_pad_left=0,
+    xlab_pad_right={'day': 21, 'week': 34, 'month': 34},
+    unitlab_dx=6, unitlab_dy=16, ytick_budget=4, tick_stride=2,
+    radius={'day': 3.0, 'week': 2.5, 'month': 2.0},
+    max_vertices=320, event_labels=False, cursor_r=3.5)
+
+FRAMES = (WIDE, NARROW)
+
+
 class XTideGraph:
     """Everything the sample skin's graph page needs; built by XTideGraphBuilder."""
-    def __init__(self, location: str, unit: str, svgs: Dict[str, str], payload: str, events: List[Dict[str, Any]],
-                 credit: str = ''):
+    def __init__(self, location: str, unit: str, svgs: Dict[str, Dict[str, str]], payload: str,
+                 events: List[Dict[str, Any]], credit: str = ''):
         self.location  = location
         self.unit      = unit         # 'ft' or 'm'
         self.credit    = credit       # where the station's data come from, markup-escaped; may be ''
-        self.svg_day   = svgs['day']
-        self.svg_week  = svgs['week']
-        self.svg_month = svgs['month']
+        # Each view drawn into both frames (see GraphFrame).  A page that
+        # wants only the desktop drawing keeps using svg_day/week/month and
+        # sees exactly the markup it always did; a page that adapts to a
+        # phone emits both and shows one, which is what the sample skin and
+        # weewx-tempestas' tides page do.
+        self.svg_day          = svgs['wide']['day']
+        self.svg_week         = svgs['wide']['week']
+        self.svg_month        = svgs['wide']['month']
+        self.svg_narrow_day   = svgs['narrow']['day']
+        self.svg_narrow_week  = svgs['narrow']['week']
+        self.svg_narrow_month = svgs['narrow']['month']
         self.json      = payload      # javascript data for tabs/tooltip (xtide.js)
         self.events    = events       # display rows for the event list
 
@@ -501,13 +652,9 @@ class XTideGraphBuilder:
     while the database keeps serving $xtide.events() and external consumers.
     """
 
-    # SVG layout in viewBox units; mirrored to javascript via the json payload.
-    W = 1000
-    H = 380
-    ML = 56   # left margin (level labels)
-    MR = 16
-    MT = 16
-    MB = 36   # bottom margin (time labels)
+    # The layout lives in GraphFrame (WIDE and NARROW above), because every
+    # view is drawn into both; it is mirrored to javascript via the json
+    # payload's 'layouts'.
 
     # (view, days, sample seconds).  The 'day' view is today plus tomorrow,
     # midnight to midnight, so an evening visitor still sees a full day ahead.
@@ -587,7 +734,7 @@ class XTideGraphBuilder:
             if parsed is None:
                 return None
             tides, suns, unit = parsed
-            svgs: Dict[str, str] = {}
+            svgs: Dict[str, Dict[str, str]] = {f.name: {} for f in FRAMES}
             views: Dict[str, Any] = {}
             for name, days, step in self.VIEWS:
                 end = begin + days * 86400
@@ -600,11 +747,23 @@ class XTideGraphBuilder:
                 t1 = t0 + days * 86400
                 view_tides = [ev for ev in tides if t0 <= ev[0] <= t1]
                 nights = self.night_intervals(suns, t0, t1)
-                svg, vlo, vhi = self.build_view_svg(name, t0, t1, actual_step, values, view_tides, nights, unit)
-                svgs[name] = svg
+                # Every view into every frame, off ONE pair of tide runs:
+                # the frames differ in how the same numbers are drawn, never
+                # in the numbers, so a second drawing costs no subprocess.
+                scales: Dict[str, Any] = {}
+                for frame in FRAMES:
+                    svg, vlo, vhi = self.build_view_svg(frame, name, t0, t1, actual_step,
+                                                        values, view_tides, nights, unit)
+                    svgs[frame.name][name] = svg
+                    scales[frame.name] = {'vlo': vlo, 'vhi': vhi}
                 views[name] = {
                     't0': t0, 't1': t1, 'step': actual_step,
-                    'vlo': vlo, 'vhi': vhi,
+                    # The value scale is the frame's, not the view's: a
+                    # narrow frame spends fewer gridlines, so it rounds to a
+                    # coarser tick and lands on a different vlo/vhi.  The
+                    # samples are the frame-independent half and are sent
+                    # once, whatever they are drawn into.
+                    'scales': scales,
                     'samples': [round(v, 3) for v in values],
                 }
             time_fmt = (self._raw('%a, %b %-d, %-I:%M %p') if self.hour12
@@ -623,8 +782,14 @@ class XTideGraphBuilder:
                 # back out of step with the table -- the defect this whole
                 # mechanism exists to prevent.
                 'hour12': '%p' in time_fmt,
-                'layout': {'w': self.W, 'h': self.H, 'ml': self.ML, 'mt': self.MT,
-                           'pw': self.W - self.ML - self.MR, 'ph': self.H - self.MT - self.MB},
+                # One entry per frame, because xtide.js has to measure a tap
+                # against the geometry of the drawing it landed on.  Given
+                # the wide frame's numbers, a tap on the narrow one maps to
+                # the wrong instant and the tooltip reads out an hour the
+                # reader is not pointing at.
+                'layouts': {f.name: {'w': f.w, 'h': f.h, 'ml': f.ml, 'mt': f.mt,
+                                     'pw': f.pw, 'ph': f.ph, 'cur': f.cursor_r}
+                            for f in FRAMES},
                 'views': views,
                 'events': [[ev[0], round(ev[1], 3), ev[2]] for ev in tides if begin <= ev[0] <= month_end],
                 # Strings xtide.js composes client-side, translated at
@@ -775,19 +940,71 @@ class XTideGraphBuilder:
         return nights
 
     @staticmethod
-    def choose_tick(value_range: float) -> float:
+    def choose_tick(value_range: float, budget: int = 8) -> float:
+        """The gridline spacing, in the level's own units: the finest round
+        step that covers the range within budget gridlines.  The narrow
+        frame has a shorter plot and bigger type, so it spends fewer."""
         for step in (0.5, 1.0, 2.0, 5.0, 10.0):
-            if value_range / step <= 8:
+            if value_range / step <= budget:
                 return step
         return 20.0
 
-    def build_view_svg(self, name: str, t0: int, t1: int, step: int, values: List[float],
+    @staticmethod
+    def curve_points(values: List[float], limit: int) -> List[Tuple[int, float]]:
+        """(index, value) for the vertices to draw, thinned to about limit
+        of them, first and last always kept.  A curve carries one sample per
+        6 minutes over two days -- 480 vertices, which a 300-unit plot cannot
+        resolve and a phone pays for in markup.  limit 0 never thins, which
+        is what the wide frame asks for.
+
+        MIN/MAX PER BUCKET, NOT EVERY NTH SAMPLE.  A tide is an oscillation,
+        and keeping every nth sample of an oscillation is undersampling it:
+        the kept points beat against the cycle, the true peaks and troughs
+        fall between them, and what gets drawn is an aliased zigzag whose
+        extremes are wherever the stride happened to land.  On the 30-day
+        view that is about 58 cycles into 320 vertices, and it showed --
+        clipped peaks, and every high and low marker floating off a curve
+        that never reached it.  Taking the LOWEST and HIGHEST sample of each
+        bucket instead, in the order they occur, keeps the envelope exactly:
+        whatever the density, the drawn curve still touches every extreme
+        the markers sit on.  It is what plotting libraries do to downsample
+        a series for display, and it costs the same vertex budget."""
+        if limit <= 0 or len(values) <= limit:
+            return list(enumerate(values))
+        n = len(values)
+        buckets = max(1, limit // 2)          # two vertices per bucket
+        keep: List[int] = []
+        for b in range(buckets):
+            lo = b * n // buckets
+            hi = (b + 1) * n // buckets
+            if hi <= lo:
+                continue
+            span = range(lo, hi)
+            i_min = min(span, key=lambda i: values[i])
+            i_max = max(span, key=lambda i: values[i])
+            # In the order they occur, so the polyline never doubles back.
+            first, last = (i_min, i_max) if i_min <= i_max else (i_max, i_min)
+            keep.append(first)
+            if last != first:
+                keep.append(last)
+        # The ends anchor the curve to the frame; a bucket extreme rarely
+        # lands exactly on them.
+        if keep[0] != 0:
+            keep.insert(0, 0)
+        if keep[-1] != n - 1:
+            keep.append(n - 1)
+        return [(i, values[i]) for i in keep]
+
+    def build_view_svg(self, frame: GraphFrame, name: str, t0: int, t1: int, step: int, values: List[float],
                        tides: List[Tuple[int, float, int]], nights: List[Tuple[float, float]],
                        unit: str) -> Tuple[str, float, float]:
-        pw = self.W - self.ML - self.MR
-        ph = self.H - self.MT - self.MB
+        pw = frame.pw
+        ph = frame.ph
         levels = values + [ev[1] for ev in tides]
-        tick = self.choose_tick(max(levels) - min(levels))
+        # From the FULL curve, never the thinned one: a frame that drops
+        # vertices must not drop the extreme they sat on and draw the rest
+        # outside its own scale.
+        tick = self.choose_tick(max(levels) - min(levels), frame.ytick_budget)
         vlo = math.floor(min(levels) / tick) * tick
         vhi = math.ceil(max(levels) / tick) * tick
         # Keep the curve clear of the frame: pad when an extreme lands on or
@@ -798,32 +1015,32 @@ class XTideGraphBuilder:
             vlo -= tick
 
         def x(t: float) -> float:
-            return self.ML + (t - t0) * pw / (t1 - t0)
+            return frame.ml + (t - t0) * pw / (t1 - t0)
 
         def y(v: float) -> float:
-            return self.MT + (vhi - v) * ph / (vhi - vlo)
+            return frame.mt + (vhi - v) * ph / (vhi - vlo)
 
         s: List[str] = []
-        s.append('<svg class="xg" data-view="%s" viewBox="0 0 %d %d" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">' % (name, self.W, self.H))
+        s.append('<svg class="%s" data-view="%s" viewBox="0 0 %d %d" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">' % (frame.svg_class, name, frame.w, frame.h))
         # Night shading (sunset to sunrise)
         for n0, n1 in nights:
-            s.append('<rect class="xg-night" x="%.1f" y="%d" width="%.1f" height="%d"/>' % (x(n0), self.MT, x(n1) - x(n0), ph))
+            s.append('<rect class="xg-night" x="%.1f" y="%d" width="%.1f" height="%d"/>' % (x(n0), frame.mt, x(n1) - x(n0), ph))
         # Horizontal grid and level labels
         v = vlo
         while v <= vhi + tick / 2:
-            s.append('<line class="xg-grid" x1="%d" y1="%.1f" x2="%d" y2="%.1f"/>' % (self.ML, y(v), self.W - self.MR, y(v)))
-            s.append('<text class="xg-lab xg-ylab" x="%d" y="%.1f">%g</text>' % (self.ML - 8, y(v) + 4, v))
+            s.append('<line class="xg-grid" x1="%d" y1="%.1f" x2="%d" y2="%.1f"/>' % (frame.ml, y(v), frame.w - frame.mr, y(v)))
+            s.append('<text class="xg-lab xg-ylab" x="%d" y="%.1f">%g</text>' % (frame.ml - frame.ylab_dx, y(v) + frame.ylab_dy, v))
             v += tick
         # Vertical grid and time labels
-        for tick_t, label in self.time_ticks(name, t0, t1):
-            s.append('<line class="xg-grid" x1="%.1f" y1="%d" x2="%.1f" y2="%d"/>' % (x(tick_t), self.MT, x(tick_t), self.MT + ph))
-            lx = min(max(x(tick_t), self.ML + 20), self.W - 24)
-            s.append('<text class="xg-lab xg-xlab" x="%.1f" y="%d">%s</text>' % (lx, self.MT + ph + 18, label))
+        for tick_t, label in self.time_ticks(name, t0, t1)[::frame.tick_stride]:
+            s.append('<line class="xg-grid" x1="%.1f" y1="%d" x2="%.1f" y2="%d"/>' % (x(tick_t), frame.mt, x(tick_t), frame.mt + ph))
+            lx = min(max(x(tick_t), frame.ml + frame.xlab_pad_left), frame.w - frame.xlab_pad_right[name])
+            s.append('<text class="xg-lab xg-xlab" x="%.1f" y="%d">%s</text>' % (lx, frame.mt + ph + frame.xlab_dy, label))
         # The tide curve
-        points = ' '.join('%.1f,%.1f' % (x(t0 + i * step), y(v)) for i, v in enumerate(values))
+        points = ' '.join('%.1f,%.1f' % (x(t0 + i * step), y(v)) for i, v in self.curve_points(values, frame.max_vertices))
         s.append('<polyline class="xg-curve" points="%s"/>' % points)
         # Event markers (labels on the day view only; elsewhere the tooltip serves)
-        radius = {'day': 4.5, 'week': 3.5, 'month': 2.5}[name]
+        radius = frame.radius[name]
         # The leading zero is stripped only from 12-hour times ("9:16 AM");
         # a 24-hour "09:16" keeps it, including via a translated format.
         # This net works here because the time starts the string.  The event
@@ -835,20 +1052,23 @@ class XTideGraphBuilder:
             high = event_type == EventType.HIGH_TIDE.value
             px, py = x(ts), y(level)
             s.append('<circle class="%s" cx="%.1f" cy="%.1f" r="%s"/>' % ('xg-hi' if high else 'xg-lo', px, py, radius))
-            if name == 'day':
+            if name == 'day' and frame.event_labels:
                 time_lbl = datetime.datetime.fromtimestamp(ts).astimezone().strftime(marker_fmt)
                 if '%I' in marker_fmt:
                     time_lbl = time_lbl.lstrip('0')
                 label = '%.2f %s · %s' % (level, unit, time_lbl)
-                lx = min(max(px, self.ML + 60), self.W - self.MR - 60)
+                # 60, 12, 20 and 6 are the wide frame's alone: they are
+                # sized for its 11-unit event-label type, and only the wide
+                # frame draws these labels at all.
+                lx = min(max(px, frame.ml + 60), frame.w - frame.mr - 60)
                 # Above a high and below a low -- unless there is no room
                 # there, in which case the label goes on the other side.
                 # Clamping it inside the plot instead drew it over its own
                 # marker whenever an extreme sat near the frame.
                 if high:
-                    ly = py - 12 if py - 12 >= self.MT + 12 else py + 20
+                    ly = py - 12 if py - 12 >= frame.mt + 12 else py + 20
                 else:
-                    ly = py + 20 if py + 20 <= self.MT + ph - 6 else py - 12
+                    ly = py + 20 if py + 20 <= frame.mt + ph - 6 else py - 12
                 # paint-order as an attribute, not in the stylesheet: the Nu
                 # checker's CSS validator does not know the property and
                 # fails xtide.css on it, while the SVG attribute validates.
@@ -856,9 +1076,9 @@ class XTideGraphBuilder:
                 # (the sample skin's halo).
                 s.append('<text class="xg-lab xg-evlab" x="%.1f" y="%.1f" paint-order="stroke">%s</text>' % (lx, ly, label))
         # Unit reminder, frame, and the javascript-positioned "now" marker
-        s.append('<text class="xg-lab xg-unitlab" x="%d" y="%d">%s</text>' % (self.ML + 8, self.MT + 16, self._t('Tide ({unit})', unit=unit)))
-        s.append('<rect class="xg-frame" x="%d" y="%d" width="%d" height="%d"/>' % (self.ML, self.MT, pw, ph))
-        s.append('<line class="xg-nowline" x1="-10" y1="%d" x2="-10" y2="%d"/>' % (self.MT, self.MT + ph))
+        s.append('<text class="xg-lab xg-unitlab" x="%d" y="%d">%s</text>' % (frame.ml + frame.unitlab_dx, frame.mt + frame.unitlab_dy, self._t('Tide ({unit})', unit=unit)))
+        s.append('<rect class="xg-frame" x="%d" y="%d" width="%d" height="%d"/>' % (frame.ml, frame.mt, pw, ph))
+        s.append('<line class="xg-nowline" x1="-10" y1="%d" x2="-10" y2="%d"/>' % (frame.mt, frame.mt + ph))
         s.append('</svg>')
         return ''.join(s), vlo, vhi
 

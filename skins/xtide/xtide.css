@@ -1,7 +1,7 @@
 /* Copyright 2026 by John A Kline.  See LICENSE.txt for your rights.
 
    The weewx-xtide sample report: three white cards on a gray page, after
-   weewx-liveseasons' tides page, with the class names that page uses.
+   weewx-tempestas' tides page, with the class names that page uses.
 
    All colors live here: Cheetah owns '#', so hex literals must never appear
    in the .tmpl file.  And every color here is a custom property, never a
@@ -12,14 +12,14 @@
    own setting with no toggle, no javascript and no stored preference for a
    copier to inherit -- weewx-nws' sample skin does the same.  The light
    --fc-* values are weewx-nws's and the --xg-* marks start from
-   weewx-liveseasons', both on the same two cards, #ffffff and #111834, so
+   weewx-tempestas', both on the same two cards, #ffffff and #111834, so
    the skins read as one family.  Where the stricter contrast bar below
    demanded it, a value was re-derived rather than kept.
    tests/test_xtide.py asserts every token against every ground it lands
    on, in both palettes, by both measures.
 
    The xg-* class names are a contract with XTideGraphBuilder's SVGs and
-   xtide.js; weewx-liveseasons restyles the same names. */
+   xtide.js; weewx-tempestas restyles the same names. */
 
 :root {
   --fc-page:#e3e3e3;
@@ -43,7 +43,7 @@
   --xg-lo:#a4641f;
   --xg-lab:#555555;
   --xg-evlab:#333333;
-  /* #545e69 (--fc-muted), not liveseasons' #6a7281: the unit label sits at
+  /* #545e69 (--fc-muted), not tempestas' #6a7281: the unit label sits at
      the graph's top left, which is the night band whenever the view starts
      at midnight, and #6a7281 reads 4.11 there. */
   --xg-unitlab:#545e69;
@@ -58,7 +58,7 @@
    accent fill is lighter on dark, so readable text on it is dark.
 
    THE BAR IS THE STRICTER OF TWO MEASURES.  Text clears WCAG 2 at 4.5 AND
-   APCA at Lc 60 (weewx-liveseasons' standard); marks clear 3.0 and Lc 30.
+   APCA at Lc 60 (weewx-tempestas' standard); marks clear 3.0 and Lc 30.
    The ratio alone passed every value this block started from -- weewx-nws's
    -- while APCA put the muted gray at Lc 49 and the accent at 37.  So the
    text and mark colors below were derived, not picked: each keeps its OKLab
@@ -158,6 +158,13 @@ body{margin:0;background:var(--fc-page);color:var(--fc-ink);
 .xg-hidden{display:none}
 svg.xg{width:100%;height:auto;display:block;background:var(--fc-surface);
        border:1px solid var(--xg-frame);box-sizing:border-box}
+/* The two drawings of each view sit in one wrapper; the wide one shows
+   until the phone block at the foot of this file swaps them.  The narrow
+   frame is laid out for 16-unit labels (GraphFrame.lab in xtide.py sizes
+   its gutter and foot from that), so the size here is not a free choice --
+   change one and the other has to move with it. */
+svg.xg-narrow{display:none}
+svg.xg-narrow .xg-lab{font-size:16px}
 .xg-night{fill:var(--xg-night)}
 .xg-grid{stroke:var(--xg-grid);stroke-width:1}
 .xg-frame{fill:none;stroke:var(--xg-frame);stroke-width:1}
@@ -218,11 +225,14 @@ svg.xg{width:100%;height:auto;display:block;background:var(--fc-surface);
   .fc .evhead,.fc .xg-evrow{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1.6fr);gap:10px}
   .fc .evhead > div:last-child,.fc .xg-evrow .ev-w{display:none}
   .fc .xg-evrow{font-size:.85em}
-  /* SVG text is in viewBox units, so a phone-width graph shrinks it with
-     the chart: scale it back up, and drop the day view's inline event
-     labels, which would collide -- tap for the tooltip instead.  22 and
-     not larger: the builder keeps an axis label's center 24 units inside
-     the right edge, and at 26 the last weekday name was clipped. */
-  .xg-area .xg-lab{font-size:22px}
-  .xg-area .xg-evlab{display:none}
+  /* The phone drawing takes over.  Enlarging the wide chart's type is what
+     this used to do, and it cannot work: the words grow while the gutter
+     and the foot they sit in do not, so they collide and clip -- 22px was
+     already the most that fit, and 22 units of a 1000-unit frame shown 330
+     px wide is 7.3 px on the glass, well under the 11 px floor these pages
+     hold to.  The narrow drawing is laid out at 360 units for this width
+     instead, so its 16-unit labels read 11.6 px on a 320 px screen and
+     14.7 px on a 390 px one. */
+  .xg-area svg.xg{display:none}
+  .xg-area svg.xg-narrow{display:block}
 }
