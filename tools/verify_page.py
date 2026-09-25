@@ -32,6 +32,11 @@ page's own XTIDE_DATA payload and table rows:
   - pointing at the graph shows the tooltip
   - the dark palette really applies (a dark block that never matches would
     leave the page light and every other check green)
+  - every divider and control outline scores, by APCA, the same in dark as
+    in light, as the browser draws it and against the background the
+    browser actually puts behind it.  tests/test_xtide.py scores the
+    tokens; it cannot see which token a rule draws with, or what is
+    behind it
   - on a translated page, the direction word is the translation and the
     countdown is not English
 
@@ -49,6 +54,8 @@ stylesheet swaps in there (3.3):
     the narrow drawing against the wide one's geometry would land on
     another instant entirely -- and the tooltip, being perfectly legible,
     would not look wrong
+  - the Right now card's divider, which becomes a top rule once the card
+    stacks, is drawn and scores in dark what it scores in light
 
 Not collected by pytest: Playwright is not a test-suite requirement.  Run it
 before a release.  Render the report into a scratch HTML_ROOT first (one per
@@ -97,6 +104,93 @@ def page_colors(root):
         h = re.search(r'--fc-page:(#[0-9a-fA-F]{6})', block).group(1)
         return 'rgb(%d, %d, %d)' % tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
     return {'light': rgb(light), 'dark': rgb(dark)}
+
+
+# A dark line may score this far from its light twin, in APCA Lc.  The same
+# number as tests/test_xtide.py's, which asserts the two agree.
+LINE_TOLERANCE = 1.0
+
+# The dividers and control outlines, and the side each is drawn on.  The
+# card outlines, the graph's frame, its gridlines and marks are not here:
+# dark is not held to light for those.
+LINES = [
+    ('tide-table row', '.xg-evrow', 'Bottom'),
+    ('column-head rule', '.evhead', 'Bottom'),
+    ('Right now divider', '.tnext', 'Left'),
+    ('day-tab outline', '.daytab:not(.xg-active)', 'Top'),
+    ('tooltip outline', '.xg-tooltip', 'Top'),
+    ('header rule', '.chead', 'Bottom'),
+    ('footer rule', '.cfoot', 'Top'),
+]
+
+# Below 600 px the Right now card stacks, and its divider moves from the
+# left of the next-tide block to the top: another rule, so another read.
+PHONE_LINES = [
+    ('Right now divider, stacked', '.tnext', 'Top'),
+]
+
+# Each line's color and the ground it sits on: the nearest ancestor that
+# paints a background.  An ancestor, never the element itself, so a tab is
+# scored against the card outside it rather than against its own fill.
+READ_LINES = """([lines]) => lines.map(([name, sel, side]) => {
+  const e = document.querySelector(sel);
+  if (!e) return [name, null, null, 0];
+  let g = e.parentElement;
+  while (g && g !== document.body) {
+    const bg = getComputedStyle(g).backgroundColor;
+    if (bg !== 'transparent' && !/^rgba\\(.*, 0\\)$/.test(bg)) break;
+    g = g.parentElement;
+  }
+  return [name, getComputedStyle(e)['border' + side + 'Color'],
+          getComputedStyle(g || document.body).backgroundColor,
+          parseFloat(getComputedStyle(e)['border' + side + 'Width'])];
+})"""
+
+
+def css_hex(color):
+    """'rgb(r, g, b)', as getComputedStyle reports it, to '#rrggbb'."""
+    return '#%02x%02x%02x' % tuple(int(v) for v in re.findall(r'\d+', color)[:3])
+
+
+def apca(text, ground):
+    """APCA Lc (APCA-W3 0.0.98G-4g), the same arithmetic as
+    tests/test_xtide.py's, which asserts the two copies agree."""
+    def y(h):
+        v = sum(k * (int(h[i:i + 2], 16) / 255.0) ** 2.4
+                for k, i in zip((0.2126729, 0.7151522, 0.0721750), (1, 3, 5)))
+        return v + (0.022 - v) ** 1.414 if v <= 0.022 else v
+    ty, gy = y(text), y(ground)
+    if abs(gy - ty) < 0.0005:
+        return 0.0
+    if gy > ty:
+        s = (gy ** 0.56 - ty ** 0.57) * 1.14
+        return 0.0 if s < 0.1 else (s - 0.027) * 100
+    s = (gy ** 0.65 - ty ** 0.62) * 1.14
+    return 0.0 if s > -0.1 else (s + 0.027) * 100
+
+
+def check_lines(page, scheme, expect, lines=LINES):
+    """Read every line under both color schemes, on the page already open,
+    then put the page back on the scheme it was opened with.  A line must
+    be drawn at all: an absent border still reports a color, currentColor,
+    and ink scores nearly alike in both schemes."""
+    seen = {}
+    for s in ('light', 'dark'):
+        page.emulate_media(color_scheme=s)
+        seen[s] = page.evaluate(READ_LINES, [lines])
+    page.emulate_media(color_scheme=scheme)
+    for (name, lc, lg, lw), (_, dc, dg, dw) in zip(seen['light'], seen['dark']):
+        if lc is None:
+            expect(False, '%s: no element on the page' % name)
+            continue
+        if not (lw > 0 and dw > 0):
+            expect(False, '%s: no line drawn (%.1f px light, %.1f px dark)' % (name, lw, dw))
+            continue
+        want = abs(apca(css_hex(lc), css_hex(lg)))
+        got = abs(apca(css_hex(dc), css_hex(dg)))
+        expect(abs(got - want) <= LINE_TOLERANCE,
+               '%s scores its light twin in dark: Lc %.1f, light %.1f (%s on %s)'
+               % (name, got, want, css_hex(dc), css_hex(dg)))
 
 
 def level_at(views, t):
@@ -300,6 +394,7 @@ def check_page(pw, engine, scheme, root, shots, failures):
                'exactly the rows before the pinned instant are dimmed (%d)' % len(card['past']))
         expect(card['bodyBg'] == page_colors(root)[scheme],
                'the %s palette applies: page %s' % (scheme, card['bodyBg']))
+        check_lines(page, scheme, expect)
         if lang != 'en' and later:
             english = page.evaluate("([n]) => new Intl.RelativeTimeFormat('en', {numeric: 'always'})"
                                     ".format(n, 'hour')", [round((later[0] - pin) / 3600)])
@@ -338,6 +433,8 @@ def check_page(pw, engine, scheme, root, shots, failures):
         # -- the least glass the graph is ever given.
         for width in (320, 390):
             page.set_viewport_size({'width': width, 'height': 844})
+            check_lines(page, scheme, lambda ok, what: expect(ok, '%d px: %s' % (width, what)),
+                        PHONE_LINES)
             for view in ('day', 'week', 'month'):
                 page.click('.xg-tab[data-view="%s"]' % view)
                 check_drawing(page, view, lambda ok, what: expect(ok, '%d px: %s' % (width, what)),

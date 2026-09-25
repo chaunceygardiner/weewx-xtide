@@ -1225,6 +1225,21 @@ GROUNDS = {
     '--xg-now':       [('--fc-surface', 'mark'), ('--xg-night', 'mark')],
 }
 
+# Dividers and control outlines, each with the ground it sits on.  In the
+# dark palette each must score, by APCA, what its light value scores: light
+# is the design, and dark is held to it rather than to a bar of its own.
+# The card and graph outlines, gridlines and marks are deliberately absent.
+LINES = {
+    '--fc-hair-2':       '--fc-surface',   # tide-table rows
+    '--fc-evhead-rule':  '--fc-surface',   # the table's column-head rule
+    '--fc-rule':         '--fc-surface',   # the Right now card's divider
+    '--fc-grid-2':       '--fc-surface',   # day-tab outline, on the card outside it
+    '--xg-tip-line':     '--fc-surface',   # tooltip outline, over the graph
+    '--fc-head-rule':    '--fc-page',      # the page header's rule
+    '--fc-foot-rule':    '--fc-page',      # the footer's rule
+}
+LINE_TOLERANCE = 1.0
+
 
 def _rgb(h):
     return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
@@ -1319,6 +1334,40 @@ class TestPalettes:
         assert 'opacity' not in css
         past = re.search(r'\.fc \.xg-evrow\.past,[^{]*\{([^}]*)\}', css)
         assert past and 'var(--fc-muted)' in past.group(1)
+
+    def test_every_dark_line_scores_its_light_twin(self):
+        """A divider that measured Lc 0 in dark (the table rows, the tab and
+        tooltip outlines) passed every other palette test, because none of
+        them looks at lines.  This measures the tokens.  tools/verify_page.py
+        measures the lines as a browser draws them, against what is really
+        behind each one, so a rule drawn with the wrong token or on another
+        ground fails there, where it cannot fail here."""
+        light, dark, _ = css_palettes()
+        bad = []
+        for tok, ground in sorted(LINES.items()):
+            want = abs(apca(light[tok], light[ground]))
+            got = abs(apca(dark[tok], dark[ground]))
+            if abs(got - want) > LINE_TOLERANCE:
+                bad.append('%s on %s: light Lc %.1f, dark Lc %.1f' % (tok, ground, want, got))
+        assert not bad, '; '.join(bad)
+
+    def test_the_page_check_measures_as_the_suite_does(self):
+        """tools/verify_page.py carries its own APCA, because the python
+        that has Playwright has neither pytest nor weewx to import this
+        file with.  The two copies must agree, on the published fixed points
+        and on every line the page check scores."""
+        sys.path.insert(0, os.path.join(REPO, 'tools'))
+        try:
+            import verify_page
+        finally:
+            sys.path.pop(0)
+        light, dark, _ = css_palettes()
+        pairs = [('#000000', '#ffffff'), ('#ffffff', '#000000')]
+        for palette in (light, dark):
+            pairs += [(palette[tok], palette[ground]) for tok, ground in LINES.items()]
+        for text, ground in pairs:
+            assert abs(verify_page.apca(text, ground) - apca(text, ground)) < 1e-9, (text, ground)
+        assert verify_page.LINE_TOLERANCE == LINE_TOLERANCE
 
     def test_every_light_token_has_a_dark_value(self):
         """A token defined only in :root keeps its LIGHT value on a dark page,

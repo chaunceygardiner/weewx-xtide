@@ -30,6 +30,8 @@
   --fc-line:#999999;
   --fc-hair-2:#eaeef2;
   --fc-rule:#c2c8ce;
+  --fc-foot-rule:#c2c8ce;
+  --fc-evhead-rule:#999999;
   --fc-grid-2:#c8ced6;
   --fc-tint-2:#f0f3f6;
   --fc-accent:#3378a0;
@@ -66,7 +68,21 @@
    every ground it lands on.  --fc-ink-3 was then raised further, to Lc 74,
    so that it stays a tier above the muted gray (Lc 63) instead of merging
    with it.  --xg-unitlab has its own value because it also sits on the
-   night band, where the muted gray has no margin. */
+   night band, where the muted gray has no margin.
+
+   LINES MATCH THEIR LIGHT TWINS.  Every divider and every control outline
+   -- the table's row and column-head rules, the header and footer rules,
+   the Right now card's divider, the day tabs' and the tooltip's outlines --
+   scores the same APCA Lc here as its light value does, each measured on
+   the ground it actually sits on: the card for most, the page for the
+   header and footer rules, and the card OUTSIDE a tab rather than the tab's
+   own fill.  Light is the design; these keep their hue and chroma and move
+   only in lightness until the score matches.  That is why --fc-foot-rule
+   and --fc-evhead-rule exist with the same light values as --fc-rule and
+   --fc-line: the footer rule sits on the page where the Right now divider
+   sits on the card, and --fc-line also draws the card outlines, which are
+   not held to this.  The card outlines, the graph's frame and its
+   gridlines are out of scope. */
 @media (prefers-color-scheme: dark) {
 :root {
   --fc-page:#000425;
@@ -75,12 +91,14 @@
   --fc-ink-3:#c1ccda;
   --fc-muted:#afb9c5;
   --fc-line:#666a8c;
-  --fc-hair-2:#1f2542;
-  --fc-rule:#3d4262;
-  --fc-grid-2:#383d5c;
+  --fc-hair-2:#394160;
+  --fc-rule:#71779a;
+  --fc-foot-rule:#474d6e;
+  --fc-evhead-rule:#a3a8cc;
+  --fc-grid-2:#697092;
   --fc-tint-2:#1a213d;
   --fc-accent:#7abde8;
-  --fc-head-rule:#999cc1;
+  --fc-head-rule:#afb3d9;
   --fc-on-accent:#181f3b;
   --xg-night:#1e2749;
   --xg-grid:#232b4c;
@@ -93,7 +111,7 @@
   --xg-unitlab:#afb8de;
   --xg-now:#e05a5a;
   --xg-tip:#1b2340;
-  --xg-tip-line:#2a3358;
+  --xg-tip-line:#aab8e5;
 }
 }
 
@@ -111,7 +129,7 @@ body{margin:0;background:var(--fc-page);color:var(--fc-ink);
              letter-spacing:.08em;text-transform:uppercase;margin:0 0 12px}
 .fc .caption{color:var(--fc-muted);font-size:.85em;margin:14px 0 0;max-width:86ch;
              line-height:1.55}
-.fc .cfoot{color:var(--fc-muted);font-size:.82em;border-top:1px solid var(--fc-rule);
+.fc .cfoot{color:var(--fc-muted);font-size:.82em;border-top:1px solid var(--fc-foot-rule);
            padding-top:10px;line-height:1.6}
 .fc .cfoot strong{color:var(--fc-ink-3);letter-spacing:.04em}
 .fc .chead{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 18px;
@@ -195,7 +213,7 @@ svg.xg-narrow .xg-lab{font-size:16px}
                           gap:16px;align-items:center}
 .fc .evhead{color:var(--fc-muted);font-size:.72em;letter-spacing:.08em;
             text-transform:uppercase;padding-bottom:8px;
-            border-bottom:1px solid var(--fc-line)}
+            border-bottom:1px solid var(--fc-evhead-rule)}
 .fc .xg-evrow{padding:9px 0;border-bottom:1px solid var(--fc-hair-2);font-size:.9em}
 .fc .ev-k{font-weight:600;display:flex;align-items:center;gap:8px}
 .fc .ev-k::before{content:"";width:9px;height:9px;border-radius:50%;flex:none}

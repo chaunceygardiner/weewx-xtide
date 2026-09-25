@@ -1,3 +1,13 @@
+3.3.1 (pending)
+---------------
+The sample report's dark theme draws its dividers and control outlines as
+    plainly as the light theme does.  The tide table's row rules and the
+    outlines of the day tabs and the graph's tooltip were all but invisible
+    on a dark screen, and the header, footer, column-head and Right now
+    card rules were fainter than their light counterparts.  Each is now as
+    visible against the dark card or page it sits on as it is in light,
+    measured by APCA.  The light theme is unchanged.
+
 3.3 09/20/2026
 --------------
 ACTION REQUIRED, and only if you wrote your own javascript against the
