@@ -33,7 +33,7 @@ class TestAmericanEnglish(unittest.TestCase):
     # invisible in review, because every one of these spellings is
     # correct somewhere -- just not here.  This is a sweep of every
     # tracked text file, so it covers comments, docstrings, templates,
-    # changes.txt, the manual and the shipped skin, which is where all
+    # changes.md, the manual and the shipped skin, which is where all
     # twenty-two of the words fixed on 2026-09-08 were living.
     #
     # THIS BLOCK IS SHARED VERBATIM with weewx-loopdata, weewx-celestial,

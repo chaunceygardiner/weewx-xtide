@@ -1,0 +1,288 @@
+# weewx-xtide change history
+
+## 3.3.1 (pending)
+- The sample report's dark theme draws its dividers and control outlines as
+  plainly as the light theme does.  The tide table's row rules and the
+  outlines of the day tabs and the graph's tooltip were all but invisible
+  on a dark screen, and the header, footer, column-head and Right now
+  card rules were fainter than their light counterparts.  Each is now as
+  visible against the dark card or page it sits on as it is in light,
+  measured by APCA.  The light theme is unchanged.
+
+## 3.3 09/20/2026
+- ACTION REQUIRED, and only if you wrote your own javascript against the
+  graph's data payload (`$g.json`).  Its shape changed to carry the second
+  drawing described below: the single `layout` key is now `layouts`, with
+  one entry per frame, and each view's `vlo`/`vhi` are now under
+  `scales`, again one entry per frame.  A skin that ships the xtide.js of
+  its own version -- which is every ordinary install, and the sample
+  report -- reads its own payload and needs nothing.
+- The tide graph is now drawn twice: once at its usual size, and once in a
+  frame laid out for a phone.  An SVG's text is in viewBox units, so the
+  wide drawing shown about 330 px across on a phone rendered its labels
+  at 4 px -- there but unreadable -- and enlarging the type in the
+  stylesheet could not fix it, because the gutter and the foot the words
+  sit in did not grow with them.  The second drawing is 360 units wide,
+  so a unit is about a pixel on the glass: its labels are 16 units and
+  read 11.6 px on a 320 px screen, 14.7 px on a 390 px one.  It thins
+  what will not fit at that size -- a time label every 12 hours on the
+  2-day view, every second day on the 7-day, every tenth on the 30-day,
+  a coarser step on the level axis, and a curve carrying only the
+  vertices 300 units can resolve -- and it leaves out the 2-day view's
+  inline event labels, which the tooltip already covers.  The sample
+  report shows it below 600 px.
+- The wide drawing changes in exactly one way: the last time label of
+  each view moves two units left, which stops it being clipped by the
+  frame.  `%b` comes from the locale WeeWX runs under, so a station running
+  under a French locale drew "mars 30" where an English one draws
+  "Sep 30", and the wider word ran past the edge -- in every release
+  before this one.  Nothing else about that drawing moved; a skin that
+  embeds only `$g.svg_day` and its two siblings is otherwise unaffected.
+- `$xtide.graph()` gained `$g.svg_narrow_day`, `$g.svg_narrow_week` and
+  `$g.svg_narrow_month`, which return the same three views in that frame.
+  Emit both and let a media query choose between them; the narrow SVG
+  carries the class `xg-narrow`, and docs/tags.md shows the markup and the
+  two rules that matter.
+- xtide.js now reads the frame off the drawing a pointer landed on, rather
+  than holding one geometry for the page.  This is what lets a tap on the
+  phone drawing read out the hour under the thumb: measured against the
+  wide drawing's margins and plot width it would land on another instant
+  entirely, and the tooltip -- perfectly legible -- would not look wrong.
+  It also moves the "now" line on both drawings, so a rotation that
+  switches between them needs no reload.
+- Fix: the tooltip's "snap to a nearby tide" reach was 10 drawing units,
+  which is 10 px only at the size the drawing happens to be shown.  It is
+  now 10 px on the glass whatever the drawing and whatever the screen.
+- Fix: the tooltip is positioned against the drawing it belongs to rather
+  than the wrapper's left edge, so it stays put in a skin that boxes each
+  drawing separately.
+- Fix: the page's stylesheet and scripts are now linked with the release
+  version on them (`xtide.css?v=3.3`).  They keep their file names from
+  release to release, so a returning visitor's browser could serve a
+  cached copy of the previous one against the new page without checking
+  for a newer file.  Until now that cost a stale color; this release is
+  the first in which the page's layout depends on the stylesheet, so a
+  cached one would draw the wide graph and the phone graph at the same
+  time.  Nothing to do: the link changes with each release, so the
+  browser fetches the new files.
+- The tide page's javascript now leaves the page alone, rather than failing,
+  if it meets a payload older than itself -- what happens when the skin
+  is newer than the installed extension.
+- The README and the manual now show the tide page on a phone, alongside the
+  desktop and dark-mode screenshots.
+- The test suite now carries the American English sweep the sibling
+  extensions have, over every tracked file.
+- tools/verify_page.py now also drives the page at 390 px and 320 px: that
+  the phone drawing is the one shown, that every label on it clears 11 px
+  on the glass, that no two time labels overlap and none is clipped, and
+  that clicking a tide marker reads out that tide and puts the cursor on
+  it.
+
+## 3.2 09/15/2026
+- ACTION REQUIRED, and only if you translated the skin yourself or
+  overrode its date formats in `[Texts]`: the four strftime keys the tide
+  page uses changed spelling.  `%a, %b %d, %Y %I:%M %p` is now
+  `%a, %b %-d, %-I:%M %p`, `%a, %b %d, %Y %H:%M` is now
+  `%a, %b %-d, %H:%M`, `%a %d` is now `%a %-d`, and `%b %d` is now
+  `%b %-d`.  An entry still keyed on an old spelling is ignored in
+  silence, leaving that string in English or in the shipped default;
+  re-key it.  The nine languages that ship with the skin are already
+  updated, so an ordinary install needs nothing.
+- `$xtide.graph()` now takes the embedding page's typography from the skin
+  that calls it, instead of deciding it here.  `clock=12` or `clock=24`
+  states the page's clock, and `unit_label=` replaces the spelled-out
+  "feet"/"meters" after each level with a short label such as "ft" --
+  pass `$unit.label.altitude` and it comes from the report's own
+  formatter.  Both are optional and the sample report passes neither,
+  so a skin that does nothing sees no change.  A clock that is neither
+  12 nor 24 is logged and ignored rather than costing you the page.
+- The tide table no longer prints the year on every row, and no longer
+  zero-pads the hour: "Mon, Sep 14, 3:06 PM" where it used to read
+  "Mon, Sep 14, 2026 03:06 PM".  Every row of a table spanning 30 days
+  carried the same year, and the page had been writing "3:06 PM" on the
+  graph and "03:06 PM" in the table beneath it for the same moment.
+  The graph's 7-day and 30-day axes lose the same padding, so a
+  single-digit day now reads "Sep 4" throughout.
+- Fix: the graph's tooltip followed each VISITOR's browser locale rather
+  than the page's own clock, so a reader whose browser is 24-hour could
+  be shown a 24-hour tooltip above a 12-hour table.  It now follows the
+  same clock as everything around it.
+
+## 3.1 09/14/2026
+- The tide icons are gone, and with them the `icon` key of `$xtide.graph()`'s
+  event rows; use the new `high` key, which is true for a high tide.  A
+  skin of your own that used `$ev.icon` needs that change.  An upgrade
+  leaves the old xtide_icons directories in place, unused; delete them
+  if you like.
+- The sample report is redesigned, after the tides page of
+  PaloAltoWeather.com: a Right now card (the current level, rising or
+  falling, and the next tide with a countdown), the tide graph, and a
+  tide table that says how long until each tide.  The clock-driven
+  parts stay current in the browser without a reload.  The page
+  follows the reader's light or dark system setting, and it is the
+  first to have a phone layout: the graph's labels are sized for a
+  small screen instead of shrinking with it, the Right now card
+  stacks, and the tide table drops to three columns.  All nine
+  languages carry the new strings.
+- Both the light and the dark page now clear the stricter of two contrast
+  measures, WCAG 2 and APCA, for every piece of text on every ground it
+  lands on, including the graph's labels on its night shading.  Several
+  dark-mode colors are brighter as a result, and tides already past are
+  shown in a muted color in the table rather than faded out.
+- The translations are no longer marked Beta.  Corrections to any of them
+  are welcome as GitHub issues.
+- The page's credit line now names the harmonics data actually installed,
+  as the harmonics file credits them, rather than always crediting
+  U.S.A. harmonics, and says NOT FOR NAVIGATION.  `$xtide.graph()`
+  offers it as `$g.credit`.
+- Fix: on the graph's 2-day view, a high or low tide close to the top or
+  bottom of the graph had its label drawn over its own marker.  The
+  label now moves to the other side, and every event label has a halo
+  so it stays legible where it crosses the curve.
+- The installation instructions now cover stations outside the US, with
+  harmonics files from openwatersio/tide-database, and build libtcd
+  2.2.7-r3.
+- Fix: tide levels now follow the report's units.  `$xtide.events()` never
+  converted anything: a level showed in the units of the harmonics
+  file, whatever the report's unit system said, and `$event.dateTime`
+  ignored the report's time formats.  Both now use the report's own
+  settings, and the feet/meters label is translated when the
+  report's language file carries those words.  The sample report's
+  graph is now drawn in the report's altitude unit as well.  A
+  station whose harmonics and reports already agree sees no change.
+- Fix: a units preference saved in the WeeWX user's `~/.xtide.xml`
+  silently changed the units the tide program reported.  The
+  extension now always tells tide which units to use, so the events
+  database holds the harmonics file's own units whatever that file
+  says.
+- The installer now writes a commented `[XTide]` section into weewx.conf.
+  Every option carries a sentence saying what it does, and `location`
+  and `prog` -- the two that must be edited -- are marked PLACEHOLDER.
+  The `days` option is written commented out, showing the value the
+  extension uses: leave it commented and the extension's own default
+  governs, including a better one a later release might bring, or
+  uncomment it to pin this station to the value written there.  This
+  affects fresh installs only.  Installing an extension fills in
+  options that are missing from weewx.conf and never rewrites one
+  that is already there, so an existing weewx.conf is untouched --
+  where it reads `#days = 7`, uncomment the line to change it; where it
+  reads `days = 7`, edit the value.
+- Fix: a `location` written into weewx.conf without quotation marks --
+  as the README's own example showed it -- was read as a list rather
+  than as one station name, and weewx then failed to start, with an
+  error that never mentioned `location`.  Such a location is now
+  rejoined into the name that was meant.  Quoting it is still the
+  right thing to do, and the README and the manual now say so.
+- Change: the `days` default in xtide.py is now 7, which is what the
+  installer has always written into weewx.conf and what the README
+  and the manual have always documented; the code fell back to 14
+  when the option was absent.  No station changes behavior: an
+  installed weewx.conf carries `days`, so the fallback was only ever
+  reached by a hand-written `[XTide]` section with no `days` in it.
+  `xtide.py --test-tide-execution` now also defaults to 7 days.
+
+## 3.0 08/07/2026
+- The sample tide report is now internationalized.  Nine languages ship:
+  English, Danish, Dutch, French, German, Italian, Norwegian, Spanish
+  and Swedish.  Pick one with `lang = <code>` on the report's stanza in
+  weewx.conf (e.g. `lang = de`); the default remains English.  The
+  English string is the `[Texts]` key and any missing translation falls
+  back to English one string at a time.  Date formats follow the
+  report language; month and weekday names come from the server's
+  locale, as in WeeWX itself.  Non-English translations are Beta,
+  pending native-speaker review; corrections welcome on GitHub.
+- Fix: weewx failed to start on systems running a non-English locale
+  (German, French, Danish, Spanish, ...).  The tide program's event
+  times are always English ("9:16 AM UTC"), but they were parsed with
+  strptime's `%p` directive, which only matches the current locale's
+  AM/PM designators -- and most non-English locales define those as
+  empty strings, so parsing raised an error during extension startup.
+  The AM/PM token is now handled explicitly; no locale affects it.
+- Change: the sample skin's graph and tide-list time labels now use
+  24-hour form when the system locale has no AM/PM designators (as in
+  most of continental Europe); 12-hour AM/PM strings would have
+  rendered there as an ambiguous "9:16".  English-locale systems are
+  unchanged.
+- Fix: `xtide.py --test-service` now honors `--location` and `--prog`; it
+  previously ignored them in favor of a hard-coded location and a tide
+  path that no longer exists.
+- Fix: tide event times were parsed in the WeeWX server's local timezone,
+  so a tide station in a different timezone than the server got events
+  shifted by the timezone difference (stations reporting UTC), or no
+  events at all (the unrecognized timezone abbreviation made parsing
+  fail).  The tide program is now run with `-z` and all times are handled
+  in UTC, so any station/server timezone combination works.  Stations
+  in the server's own timezone (e.g. a California station on a
+  California server) were always correct and are unaffected.  This
+  also fixes a possible one-hour error for events falling in the
+  repeated hour of the autumn DST fall-back.
+
+## 2.1 07/12/2026
+- Fix: weewx could fail to shut down when the stop signal (SIGTERM) landed
+  inside XTide's archive-period database code — the shutdown exception
+  was logged and swallowed by the save/delete/fetch error handlers; it
+  is now passed through so weewx stops promptly.
+
+## 2.0 07/10/2026
+- README corrections: the Python requirement is 3.10 (the code has used
+  match statements since 1.1); dropped the python-dateutil install step
+  (it is not used).
+- The sample report is now an interactive tide graph: continuous tide levels
+  with high/low events marked, three tabs (2 days / 7 days / 30 days),
+  click or hover anywhere on the curve for the exact time and level,
+  night (sunset to sunrise) shading, and a "now" line.  The tidal event
+  list appears below the graph, filtered to the selected view.
+- The sample report now runs the tide program at report time and always
+  covers 30 days; it no longer reads the events database and is not
+  limited by the `days` setting.  `$xtide.events()` and the database are
+  unchanged for use in your own reports.
+- New skin files xtide.css and xtide.js (styles and colors now live in the
+  css file, not in the template).
+- Add a test suite (pytest): both tide output formats (2.15 and 2.16),
+  all tide failure paths, graph geometry/payload invariants, and an
+  end-to-end Cheetah render of the sample template — all against fake
+  tide executables for determinism.  Integration tests then verify the
+  REAL tide program's output format still matches what the parser
+  expects (run these after upgrading xtide or harmonics).  A missing or
+  non-working tide FAILS the suite: it is an early signal that the
+  extension will not work in production.
+- Fix dead return-code check when running the tide program; failed runs
+  (including unknown station names, which tide reports with exit code 0)
+  now log XTide's actual error message.
+- Add a 10s timeout to the tide invocation so a wedged tide program can't
+  hang the polling thread (normal runs take well under a second).
+
+## 1.1 07/01/2026
+- Update xtide install instructions to install xtide 2.16.
+- Update weewx-xtide to handle 2.16 change to how events are formatted.
+  xtide v2.16:
+  ```
+  "Palo Alto Yacht Harbor, San Francisco Bay, California",2024-07-07,1:12 AM PDT,8.50 ft,"High Tide"
+  ```
+  xtide v2.15:
+  ```
+  Palo Alto Yacht Harbor| San Francisco Bay| California,2024-07-07,1:12 AM PDT,8.50 ft,High Tide
+  ```
+- v1.1 handles both old and new format.
+
+## 1.0.5 11/27/2024
+- Instructions no longer assume home directory is at `/home/<username>` when
+  building and installing xtide manually.
+
+## 1.0.4 7/16/2024
+- Revamped sample report.
+
+## 1.0.3 7/14/2024
+- Updated, cleaner icons.
+
+## 1.0.2 7/14/2024
+- Unencumbered icons.
+
+## 1.0.1 07/13/2024
+- Move icons directory to xtide_icons.  This is out of an abundance of
+  caution since icons directories in the root html directory of apache2
+  don't behave well due to the alias in the default configuration
+  (`Alias /icons/ "/usr/share/apache2/icons/"`).
+
+## 1.0 07/12/2024
+- Initial release of weewx-xtide.

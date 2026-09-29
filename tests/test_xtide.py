@@ -1982,7 +1982,7 @@ class TestInstallerConfig:
         never reached, so editing the assignment turns the test green
         while silently changing what new stations get.  Moving the
         fallback is usually what preserves behavior; moving the assignment
-        is a deliberate change of default and belongs in changes.txt.
+        is a deliberate change of default and belongs in changes.md.
         (This repo shipped days = 7 against a fallback of 14 for three
         releases; the fallback is the side that moved.)"""
         commented = dict(self.commented_options()['XTide'])
